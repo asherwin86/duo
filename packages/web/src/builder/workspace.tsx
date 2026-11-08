@@ -152,7 +152,8 @@ export function Workspace({
   const projectId = project?.id
   useEffect(() => {
     const selected = current.current
-    if (!selected || selected.id !== projectId || !client) return
+    // The plain Simulator is a bare phone: only the Build side brings a saved project onto it.
+    if (!selected || selected.id !== projectId || !client || (mode !== 'build' && !upcoming)) return
     const control = new AbortController()
     controller.current = control
     setBusy(true)
@@ -163,7 +164,9 @@ export function Workspace({
       .then(async (bundle) => {
         if (control.signal.aborted) return
         setStage('Starting on the phone')
-        await client.apply(selected.id, revision.id, bundle)
+        // Coming back to a saved project puts it on the phone's home screen; the app opens when the person
+        // asks for a change or presses undo, not every time the page loads.
+        await client.apply(selected.id, revision.id, bundle, false, false)
         if (alive.current) setStage('Ready')
       })
       .catch((e) => {
@@ -176,7 +179,7 @@ export function Workspace({
         if (alive.current) setBusy(false)
       })
     return () => control.abort()
-  }, [projectId, client])
+  }, [projectId, client, mode, upcoming])
   // biome-ignore lint/correctness/useExhaustiveDependencies: new messages and progress keep the active conversation visible.
   useEffect(() => {
     if (project?.messages.length) scroller.current?.scrollTo({ top: scroller.current.scrollHeight })

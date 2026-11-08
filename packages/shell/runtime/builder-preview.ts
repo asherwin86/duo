@@ -195,13 +195,20 @@ export function startBuilderPreview() {
       src = URL.createObjectURL(new Blob([bundle.html], { type: 'text/html' }))
       development.set(id, { bundle, src })
       broadcast({ id })
-      waiting = waitForApp(id, bundle.release.build.hash)
-      void waiting.promise.catch(() => {})
+      // A saved project the page only brought back is installed, on the home screen, and not launched: it
+      // never started, so there is no readiness to wait for either.
+      const launch = request.open !== false
+      if (launch) {
+        waiting = waitForApp(id, bundle.release.build.hash)
+        void waiting.promise.catch(() => {})
+      }
       await refreshRegistry()
-      device.wake()
-      unlockAll()
-      device.open(id)
-      await waiting.promise
+      if (launch) {
+        device.wake()
+        unlockAll()
+        device.open(id)
+        await waiting?.promise
+      }
       await transaction(['marks'], 'readwrite', async (tx) => {
         tx.objectStore('marks').delete(pendingKey)
         await put(tx, 'marks', currentKey, request.revision)
@@ -236,7 +243,7 @@ export function startBuilderPreview() {
       if (previous) {
         development.set(id, previous)
         await refreshRegistry()
-        device.open(id)
+        if (request.open !== false) device.open(id)
       } else {
         development.delete(id)
         await refreshRegistry()

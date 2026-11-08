@@ -48,8 +48,8 @@ export class PreviewClient {
   connect() {
     return this.send({ sequence: 0 })
   }
-  apply(project: string, revision: string, bundle: PreviewBundle, restore = false) {
-    return this.send({ sequence: ++this.sequence, project, revision, bundle, restore })
+  apply(project: string, revision: string, bundle: PreviewBundle, restore = false, open = true) {
+    return this.send({ sequence: ++this.sequence, project, revision, bundle, restore, open })
   }
   dispose() {
     window.removeEventListener('message', this.listener)

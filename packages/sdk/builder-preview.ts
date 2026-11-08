@@ -12,6 +12,11 @@ export type PreviewRequest = {
   revision: string
   bundle: PreviewBundle
   restore?: boolean
+  /**
+   * Whether the phone launches the app once it is installed; true unless it says false. A page that only brings
+   * a saved project back for the person to use is false: the home screen stays, with the app on it.
+   */
+  open?: boolean
 }
 export type PreviewReply = {
   channel: typeof BUILDER_CHANNEL
