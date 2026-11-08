@@ -24,5 +24,5 @@ export const Route = createFileRoute('/simulator')({
 
 function Page() {
   const { app, arg } = Route.useSearch()
-  return <Workspace upcoming app={app} arg={arg} />
+  return <Workspace start="simulator" app={app} arg={arg} />
 }

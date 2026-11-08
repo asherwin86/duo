@@ -14,10 +14,21 @@ const SUGGESTIONS = ['Make me a timer app', 'Build a simple notes app', 'Make a 
 
 /**
  * `upcoming` shows the workspace with the phone live and the chat side switched off.
+ * `start` is the mode the page opens in; a deep link (`app`, `arg`) opens the phone alone.
  * `app` is the home screen name the phone opens on, `arg` the deep link it opens with,
  * from the /apps deep links (a catalog id opens that page in the Store).
  */
-export function Workspace({ upcoming = false, app, arg }: { upcoming?: boolean; app?: string; arg?: string }) {
+export function Workspace({
+  upcoming = false,
+  start,
+  app,
+  arg
+}: {
+  upcoming?: boolean
+  start?: 'simulator' | 'build'
+  app?: string
+  arg?: string
+}) {
   const [project, setProject] = useState<Project>()
   const [projects, setProjects] = useState<Project[]>([])
   const [connection, setConnection] = useState<Connection>({
@@ -32,7 +43,9 @@ export function Workspace({ upcoming = false, app, arg }: { upcoming?: boolean; 
   const [tab, setTab] = useState<'chat' | 'preview'>('chat')
   const [mobile, setMobile] = useState(false)
   const [sourceOpen, setSourceOpen] = useState(false)
-  const [mode, setMode] = useState<'simulator' | 'build'>(upcoming ? 'simulator' : 'build')
+  const [mode, setMode] = useState<'simulator' | 'build'>(
+    upcoming ? 'simulator' : (start ?? (app || arg ? 'simulator' : 'build'))
+  )
   const [text, setText] = useState('')
   const [stage, setStage] = useState('Loading workspace')
   const [error, setError] = useState('')

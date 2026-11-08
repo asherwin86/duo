@@ -65,7 +65,7 @@ export function Hero() {
           </motion.p>
           <motion.div {...stylex.props(styles.actions)} {...rise(3)}>
             <Button to="/simulator">Try Duo</Button>
-            <Button to="/get-started" outline>
+            <Button to="/build" outline>
               Build an app
             </Button>
             <a

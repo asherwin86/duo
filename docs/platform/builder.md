@@ -1,10 +1,11 @@
 # Browser app builder
 
-Status: upcoming. The builder workspace (`packages/web/src/builder`) stays in the tree
-but is not linked; `/build` and `/get-started` redirect to `/simulator`, the public page
-where visitors drive the phone directly. `/device/` remains the embedded shell. Local CLI
-authoring remains under `/docs/getting-started`. The rest of this page describes the
-parked workspace as built.
+Status: live. `/build` opens the builder workspace (`packages/web/src/builder`): a chat
+beside the real simulator, where a model you connect writes an app that runs on the phone.
+`/simulator` is the same workspace opened on the phone alone (its Build toggle switches
+to the chat), and a deep link there (`?app=`, `?arg=`) always opens the phone. `/get-started`
+redirects to `/build`. `/device/` remains the embedded shell. Local CLI authoring
+remains under `/docs/getting-started`.
 
 ## Credentials and requests
 
