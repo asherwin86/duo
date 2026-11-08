@@ -60,6 +60,37 @@ test('the connection test accepts a reply that stops at its token cap, even an e
     response(['data: {"choices":[{"delta":{"content":"O"},"finish_reason":"length"}]}\n\n'])) as typeof fetch
   await expect(completion(connection, messages, new AbortController().signal)).rejects.toThrow('truncated')
 })
+test('OpenAI is asked with max_completion_tokens, and a 400 naming the other spelling is retried once', async () => {
+  const bodies: Record<string, unknown>[] = []
+  globalThis.fetch = (async (_url, options) => {
+    bodies.push(JSON.parse(String(options?.body)))
+    return response(['data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":"stop"}]}\n\n', 'data: [DONE]\n\n'])
+  }) as typeof fetch
+  const openai = { ...connection, endpoint: 'https://api.openai.com/v1' }
+  await completion(openai, messages, new AbortController().signal)
+  expect(bodies[0]).toHaveProperty('max_completion_tokens', 12000)
+  expect(bodies[0]).not.toHaveProperty('max_tokens')
+  bodies.length = 0
+  globalThis.fetch = (async (_url, options) => {
+    const body = JSON.parse(String(options?.body))
+    bodies.push(body)
+    if ('max_tokens' in body)
+      return new Response("Unsupported parameter: 'max_tokens'. Use 'max_completion_tokens' instead.", { status: 400 })
+    return response(['data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":"stop"}]}\n\n', 'data: [DONE]\n\n'])
+  }) as typeof fetch
+  expect(await completion(connection, messages, new AbortController().signal)).toBe('Hi')
+  expect(bodies).toHaveLength(2)
+  expect(bodies[1]).toHaveProperty('max_completion_tokens', 12000)
+})
+test('an unexplained 400 says what to check and is not retried', async () => {
+  let calls = 0
+  globalThis.fetch = (async () => {
+    calls++
+    return new Response('model not found', { status: 400 })
+  }) as typeof fetch
+  await expect(completion(connection, messages, new AbortController().signal)).rejects.toThrow('Check the model ID')
+  expect(calls).toBe(1)
+})
 test('does not display provider error bodies containing credentials', async () => {
   globalThis.fetch = (async () => new Response(connection.key, { status: 401 })) as typeof fetch
   await expect(completion(connection, messages, new AbortController().signal)).rejects.toThrow('API key was rejected')

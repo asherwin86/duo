@@ -73,24 +73,45 @@ export async function completion(
   if (!connection.model.trim()) throw new Error('Enter a model ID in Connection')
   const timeout = AbortSignal.timeout(180_000)
   const combined = AbortSignal.any([signal, timeout])
-  let response: Response
-  try {
-    response = await fetch(url, {
+  // OpenAI's newer models take only `max_completion_tokens`; everyone else still reads `max_tokens`.
+  let param: 'max_tokens' | 'max_completion_tokens' =
+    new URL(url).hostname === 'api.openai.com' ? 'max_completion_tokens' : 'max_tokens'
+  const send = () =>
+    fetch(url, {
       method: 'POST',
       credentials: 'omit',
       redirect: 'error',
       referrerPolicy: 'no-referrer',
       headers: { Authorization: `Bearer ${connection.key.trim()}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: connection.model.trim(), messages, stream: true, max_tokens: test ? 16 : 12000 }),
+      body: JSON.stringify({
+        model: connection.model.trim(),
+        messages,
+        stream: true,
+        [param]: test ? 16 : 12000
+      }),
       signal: combined
     })
+  let response: Response
+  try {
+    response = await send()
+    // A 400 that names the token limit means this provider wants the other spelling: ask once more.
+    // The body is only searched for the parameter's name; it is never shown or kept.
+    if (response.status === 400) {
+      const detail = (await response.text()).slice(0, 4000)
+      const other = param === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens'
+      if (detail.includes(other) || detail.includes(param)) {
+        param = other
+        response = await send()
+      }
+    }
   } catch {
     if (combined.aborted) throw new Error(signal.aborted ? 'Stopped' : 'Provider timed out after 3 minutes')
     throw new Error('Cannot reach this endpoint. Check the URL, connection and provider browser CORS support.')
   }
   if (!response.ok) {
-    void response.body?.cancel()
+    void response.body?.cancel().catch(() => {})
     const reason: Record<number, string> = {
+      400: 'Provider rejected the request (400). Check the model ID and that it supports chat completions.',
       401: 'API key was rejected',
       403: 'Access denied by the provider',
       402: 'Provider credits are exhausted',
