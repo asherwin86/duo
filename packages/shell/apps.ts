@@ -3,6 +3,7 @@
 // take rows 1-2 of LEFT, which is why LEFT's first row of icons is the third
 // row on screen.
 
+import { Android } from '@doan-labs/duo-app-android/index.tsx'
 import { AppStore } from '@doan-labs/duo-app-appstore/index.tsx'
 import { Camera } from '@doan-labs/duo-app-camera/index.tsx'
 import { FaceTime } from '@doan-labs/duo-app-facetime/index.tsx'
@@ -43,7 +44,7 @@ const SETTINGS_HOST: SettingsHost = {
   claimSide
 }
 /** The apps inside Utilities, Apple's one shipped folder: Spotlight finds them, the grid does not. */
-const UTILITIES = ['Calculator', 'Voice Memos', 'Shortcuts', 'Podcasts', 'Books']
+const UTILITIES = ['Calculator', 'Voice Memos', 'Shortcuts', 'Podcasts', 'Books', 'Android']
 
 /** Left half — the cover display, rows 3 to 6. */
 export const LEFT: App[] = [
@@ -104,7 +105,8 @@ export const APPS: App[] = [
   { name: 'Voice Memos', id: 'labs.doan.ipduo.memos', ...RELEASE },
   { name: 'Shortcuts', mock: true, light: true, view: Shortcuts },
   { name: 'Podcasts', mock: true, light: true, view: Podcasts },
-  { name: 'Books', id: 'labs.doan.ipduo.books', light: true, ...RELEASE }
+  { name: 'Books', id: 'labs.doan.ipduo.books', light: true, ...RELEASE },
+  { name: 'Android', view: Android }
 ]
 
 /** Look an app up by name, case-insensitively; undefined if nothing matches. */

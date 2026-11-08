@@ -19,6 +19,16 @@
         "typescript": "^7.0.2",
       },
     },
+    "packages/apps/android": {
+      "name": "@doan-labs/duo-app-android",
+      "version": "0.0.0",
+      "dependencies": {
+        "@doan-labs/duo-sdk": "workspace:*",
+        "@doan-labs/duo-uikit": "workspace:*",
+        "@stylexjs/stylex": "0.19.0",
+        "react": "^19",
+      },
+    },
     "packages/apps/appstore": {
       "name": "@doan-labs/duo-app-appstore",
       "version": "0.0.0",
@@ -380,6 +390,7 @@
       "name": "@doan-labs/duo-shell",
       "version": "0.0.0",
       "dependencies": {
+        "@doan-labs/duo-app-android": "workspace:*",
         "@doan-labs/duo-app-appstore": "workspace:*",
         "@doan-labs/duo-app-books": "workspace:*",
         "@doan-labs/duo-app-calculator": "workspace:*",
@@ -513,6 +524,8 @@
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.5.14", "", { "os": "win32", "cpu": "x64" }, "sha512-oJWmBhoHsnhUKIke+0gXDX0mltJrWHA1UyHsrTlXwX0TL64ilVZAo+TYZm97baecV0esBdpzy3k96q+09JaZUQ=="],
 
     "@dimforge/rapier3d-compat": ["@dimforge/rapier3d-compat@0.12.0", "", {}, "sha512-uekIGetywIgopfD97oDL5PfeezkFpNhwlzlaEYNOA0N6ghdsOvh/HYjSMek5Q2O1PYvRSDFcqFVJl4r4ZBwOow=="],
+
+    "@doan-labs/duo-app-android": ["@doan-labs/duo-app-android@workspace:packages/apps/android"],
 
     "@doan-labs/duo-app-appstore": ["@doan-labs/duo-app-appstore@workspace:packages/apps/appstore"],
 

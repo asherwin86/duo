@@ -10,6 +10,7 @@
 // wall.webp is Apple's own Star White dune wallpaper, lifted out of the
 // iPhone Duo USDZ that tools/prepare-assets.py downloads for the body model.
 
+const android = '/icons/android.webp'
 const appstore = '/icons/appstore.webp'
 const books = '/icons/books.webp'
 const calculator = '/icons/calculator.webp'
@@ -277,6 +278,7 @@ export const ICONS: Record<string, string> = {
   Freeform: freeform,
   Shortcuts: shortcuts,
   'Voice Memos': voicememos,
+  Android: android,
   Preview: preview,
   Contacts: contacts,
   Tips: tips,

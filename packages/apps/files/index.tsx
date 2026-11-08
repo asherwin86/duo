@@ -63,10 +63,15 @@ const Node = ({ node, back, os }: { node: Node_; back: () => void; os: Os }) => 
           <div {...stylex.props(styles.bigIcon)}>{node.i}</div>
           {node.size}
           <Text size="caption" xstyle={[styles.note]}>
-            {`${fileKind(node.n)}. No app on this iPhone can open it.`}
+            {fileKind(node.n) === 'Android package'
+              ? 'Android package. iPhone cannot open it, but the Android app can run it.'
+              : `${fileKind(node.n)}. No app on this iPhone can open it.`}
           </Text>
         </Placeholder>
         <div {...stylex.props(styles.actions)}>
+          {fileKind(node.n) === 'Android package' && (
+            <Row onClick={() => os.open('Android', node.n)}>Run in Android</Row>
+          )}
           <Row
             onClick={() =>
               void os.downloads?.get(node.n).then((blob) => {

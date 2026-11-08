@@ -2,6 +2,7 @@
 // the page itself, which turns the USD model into HTML; this serves public/
 // as real files, the way `bun build` and Tauri ship it.
 import index from './packages/shell/index.html'
+import { allowed, android, screen, wantsScreen } from './scripts/android-emulator.ts'
 import { buildPreinstalled } from './scripts/build-preinstalled.ts'
 import { storage, storageFolder } from './scripts/storage-folder.ts'
 import { startYoutubeProxy } from './scripts/youtube-proxy.ts'
@@ -13,9 +14,15 @@ Bun.serve({
   port,
   routes: { '/': index },
   development: { hmr: true, console: true },
-  async fetch(req) {
+  websocket: screen,
+  async fetch(req, server) {
+    // The emulator's screen is a WebSocket; only this machine's own page may open one.
+    if (wantsScreen(req))
+      return allowed(req) && server.upgrade(req) ? undefined : new Response('Not allowed', { status: 403 })
     const stored = await storage(req)
     if (stored) return stored
+    const emulated = await android(req)
+    if (emulated) return emulated
     const path = decodeURIComponent(new URL(req.url).pathname)
     const file = Bun.file(
       `${path.startsWith('/cdn/') || path.startsWith('/preinstalled/') ? './dist' : './public'}${path}`

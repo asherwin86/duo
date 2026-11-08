@@ -60,6 +60,23 @@ The dev server also keeps a **storage folder** on your computer, `storage/Downlo
 and it shows up on the phone, and Safari saves downloads into it with no save window. Settings > General > Duo
 Storage has the switch for that. A built site has no server, so there Downloads stay in the browser.
 
+### Android
+
+The **Android** app (in Utilities) shows a real Android 14 phone: Google's Android Emulator runs on your computer
+beside the dev server, which streams its screen to the page and sends touch back. Put an APK in the storage folder
+and open it from Files (Run in Android) or the app's Apps list. ARM and x86 apps both run. It needs `bun run dev`
+and the Android SDK; a built site has no emulator and says so.
+
+Install the SDK once ([command-line tools](https://developer.android.com/studio#command-line-tools-only), then):
+
+```sh
+sdkmanager "platform-tools" "emulator" "build-tools/37.0.0" "system-images/android-34/google_apis/x86_64"
+```
+
+The emulator needs hardware virtualization (Windows Hypervisor Platform or Hyper-V on Windows, KVM on Linux,
+Hypervisor.framework on macOS). `ANDROID_HOME` points at a non-standard SDK; `DUO_ANDROID_GPU=swiftshader_indirect`
+swaps the graphics from your GPU to software if the emulator will not start with it.
+
 | Command | Purpose |
 | --- | --- |
 | `bun run dev` | Start the simulator in the browser |
