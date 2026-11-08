@@ -7,8 +7,33 @@ import { Button, Screen, Text } from '@doan-labs/duo-uikit'
 import { Sym } from '@doan-labs/duo-uikit/sym.tsx'
 import * as stylex from '@stylexjs/stylex'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { canDecode, current, hasChecked, keepFresh, run, send, show, start, stop, watch } from './emulator.ts'
+import {
+  canDecode,
+  current,
+  hasChecked,
+  keepFresh,
+  pressKey,
+  run,
+  send,
+  show,
+  start,
+  stop,
+  typeText,
+  watch
+} from './emulator.ts'
 import { styles } from './styles.ts'
+
+/** The keys that move around or edit in a form, as Android's key codes. */
+const KEYS: Record<string, number> = {
+  Enter: 66,
+  Backspace: 67,
+  Delete: 112,
+  Tab: 61,
+  ArrowUp: 19,
+  ArrowDown: 20,
+  ArrowLeft: 21,
+  ArrowRight: 22
+}
 
 /** Android's three-button navigation: Back, Home, Recents. */
 const NAV = [
@@ -171,7 +196,32 @@ export const Android = ({ os }: { os: Os }) => {
         <canvas
           ref={canvas}
           {...stylex.props(styles.screen)}
+          tabIndex={0}
+          aria-label="Android screen"
+          // The phone's own keyboard shortcuts (L is the side button, the arrows are the volume) must not hear
+          // what is typed into Android.
+          onKeyUp={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            e.stopPropagation()
+            if (os.mirror || e.metaKey || e.ctrlKey || e.altKey) return
+            const code = KEYS[e.key]
+            if (code) {
+              e.preventDefault()
+              pressKey(code)
+            } else if (e.key.length === 1) {
+              e.preventDefault()
+              typeText(e.key)
+            }
+          }}
+          onPaste={(e) => {
+            const text = e.clipboardData.getData('text')
+            if (!text || os.mirror) return
+            e.preventDefault()
+            typeText(text)
+          }}
           onPointerDown={(e) => {
+            // Focus follows the touch, so what is typed next goes into the field just tapped.
+            e.currentTarget.focus()
             e.currentTarget.setPointerCapture(e.pointerId)
             press.current = { ...at(e), px: e.clientX, py: e.clientY, at: performance.now() }
           }}
@@ -211,7 +261,7 @@ export const Android = ({ os }: { os: Os }) => {
         ))}
         <input
           {...stylex.props(styles.type)}
-          placeholder="Type into Android"
+          placeholder="Type here, or click the screen and use your keyboard"
           onKeyDown={(e) => {
             if (e.key !== 'Enter' || os.mirror) return
             send({ t: 'text', text: e.currentTarget.value })

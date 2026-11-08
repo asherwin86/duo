@@ -34,7 +34,17 @@ const aapt2 = () => {
   return newest ? exe(join(dir, newest, 'aapt2')) : undefined
 }
 
-const AVD = 'duo'
+/**
+ * The Android 14 image to run, newest preference first. The Google Play one lets the person sign in and install apps
+ * from the Play Store; it is a virtual phone of its own, so the plain one and what is installed on it stay as they were.
+ */
+const IMAGES = [
+  { avd: 'duo-play', dir: 'google_apis_playstore', play: true, label: 'Google Play' },
+  { avd: 'duo', dir: 'google_apis', play: false, label: 'Google APIs' }
+] as const
+type Image = (typeof IMAGES)[number]
+const chooseImage = (): Image | undefined =>
+  IMAGES.find((i) => existsSync(join(SDK ?? '', 'system-images', 'android-34', i.dir, 'x86_64')))
 const PORT = 5580
 const SERIAL = `emulator-${PORT}`
 /** What the stream is encoded at: a quarter of the pixels of a 1080 by 2400 screen, both sides multiples of 16. */
@@ -51,6 +61,8 @@ const env = () => ({ ...process.env, ANDROID_HOME: SDK, ANDROID_SDK_ROOT: SDK })
 type State = 'off' | 'booting' | 'running'
 let state: State = 'off'
 let message = ''
+/** Whether the running (or next) Android has the Play Store. */
+let play = false
 let emulator: ReturnType<typeof Bun.spawn> | undefined
 let size = { width: 1080, height: 2400 }
 
@@ -76,12 +88,11 @@ const adb = (...args: string[]) => run([tool.adb!, '-s', SERIAL, ...args])
  * The virtual device is two small files the emulator reads, written here rather than through avdmanager, which
  * cannot be called portably with a package name that holds semicolons. A phone-shaped Pixel 6 on Android 14.
  */
-async function ensureAvd() {
+async function ensureAvd(image: Image) {
+  const AVD = image.avd
   const home = process.env.ANDROID_AVD_HOME ?? join(homedir(), '.android', 'avd')
   const dir = join(home, `${AVD}.avd`)
   if (existsSync(join(dir, 'config.ini'))) return
-  if (!existsSync(join(SDK ?? '', 'system-images', 'android-34', 'google_apis', 'x86_64')))
-    throw new Error('The Android 14 system image is not installed')
   mkdirSync(dir, { recursive: true })
   writeFileSync(
     join(home, `${AVD}.ini`),
@@ -91,11 +102,11 @@ async function ensureAvd() {
     join(dir, 'config.ini'),
     [
       `AvdId=${AVD}`,
-      'PlayStore.enabled=false',
+      `PlayStore.enabled=${image.play}`,
       'abi.type=x86_64',
-      'avd.ini.displayname=Duo Android',
+      `avd.ini.displayname=Duo Android${image.play ? ' (Google Play)' : ''}`,
       'avd.ini.encoding=UTF-8',
-      'disk.dataPartition.size=6G',
+      `disk.dataPartition.size=${image.play ? '12G' : '6G'}`,
       'hw.accelerometer=yes',
       'hw.audioInput=no',
       'hw.audioOutput=no',
@@ -115,15 +126,15 @@ async function ensureAvd() {
       'hw.lcd.height=2400',
       'hw.lcd.width=1080',
       'hw.mainKeys=no',
-      'hw.ramSize=2048',
+      `hw.ramSize=${image.play ? 3072 : 2048}`,
       'hw.sdCard=no',
       'hw.sensors.orientation=yes',
       'hw.trackBall=no',
-      'image.sysdir.1=system-images/android-34/google_apis/x86_64/',
+      `image.sysdir.1=system-images/android-34/${image.dir}/x86_64/`,
       'runtime.network.latency=none',
       'runtime.network.speed=full',
-      'tag.display=Google APIs',
-      'tag.id=google_apis',
+      `tag.display=${image.label}`,
+      `tag.id=${image.dir}`,
       ''
     ].join('\n')
   )
@@ -152,12 +163,15 @@ async function start() {
   state = 'booting'
   message = 'Starting Android…'
   try {
-    await ensureAvd()
+    const image = chooseImage()
+    if (!image) throw new Error('The Android 14 system image is not installed')
+    await ensureAvd(image)
+    play = image.play
     emulator = Bun.spawn(
       [
         tool.emulator!,
         '-avd',
-        AVD,
+        image.avd,
         '-port',
         String(PORT),
         '-no-window',
@@ -289,6 +303,27 @@ type Input =
   | { t: 'text'; text: string }
 const clamp = (n: unknown) => Math.min(1, Math.max(0, Number(n) || 0))
 const px = (v: unknown, axis: 'width' | 'height') => Math.round(clamp(v) * (size[axis] - 1))
+/**
+ * The `adb shell input` calls that type some text. Printable ASCII only, which is all `input text` types. The
+ * device's shell reads the line, so each piece is quoted whole, and a space is %s to `input text`. A backslash is a
+ * key press of its own: the device reads one followed by digits as an octal character code. The text is never
+ * logged: it may be a password.
+ */
+export function textSteps(text: unknown): string[][] {
+  const steps: string[][] = []
+  String(text)
+    .slice(0, 400)
+    .replace(/[^ -~]/g, '')
+    .split('\\')
+    .forEach((part, k) => {
+      if (k > 0) steps.push(['keyevent', '73'])
+      const typed = part.replace(/'/g, `'\\''`).replace(/ /g, '%s')
+      if (typed) steps.push(['text', `'${typed}'`])
+    })
+  return steps
+}
+/** Home, Back, Recents, Menu, Tab, Enter, the arrows, Backspace and Delete. */
+const KEYS = new Set([3, 4, 187, 82, 61, 66, 19, 20, 21, 22, 67, 112])
 let shell: Promise<unknown> = Promise.resolve()
 function input(message: Input) {
   if (state !== 'running') return
@@ -306,16 +341,11 @@ function input(message: Input) {
         String(Math.min(3000, Math.max(30, Math.round(message.ms) || 200)))
       )
     case 'key':
-      // Back, Home and Recents only: the rest of the keyboard is not the page's to press.
-      return [4, 3, 187].includes(message.code) ? go('keyevent', String(message.code)) : undefined
+      // The keys a person needs to move around and fill a form; the rest of the keyboard is not the page's to press.
+      return KEYS.has(message.code) ? go('keyevent', String(message.code)) : undefined
     case 'text':
-      return go(
-        'text',
-        String(message.text)
-          .slice(0, 200)
-          .replace(/[^\w@.,:/ -]/g, '')
-          .replace(/ /g, '%s')
-      )
+      for (const step of textSteps(message.text)) go(...step)
+      return
   }
 }
 
@@ -368,6 +398,7 @@ export async function android(req: Request): Promise<Response | undefined> {
       state,
       message,
       size: streamSize(),
+      play: state === 'off' ? Boolean(chooseImage()?.play) : play,
       hint: SDK ?? null
     })
   if (req.method !== 'POST') return json({ error: 'Not supported' }, 405)

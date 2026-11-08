@@ -70,9 +70,13 @@ and the Android SDK; a built site has no emulator and says so.
 Install the SDK once ([command-line tools](https://developer.android.com/studio#command-line-tools-only), then):
 
 ```sh
-sdkmanager "platform-tools" "emulator" "build-tools/37.0.0" "system-images/android-34/google_apis/x86_64"
+sdkmanager "platform-tools" "emulator" "build-tools/37.0.0" "system-images/android-34/google_apis_playstore/x86_64"
 ```
 
+With the **Google Play** image, as above, Android has the Play Store: open it in the app, sign in with your own Google
+account and install apps as on any phone (click the Android screen and type on your keyboard). With the plain
+`google_apis` image instead, it still runs APKs from the storage folder. Both can be installed; Google Play is used
+when it is there, as a virtual phone of its own, so the other one and what is installed on it stay as they were.
 The emulator needs hardware virtualization (Windows Hypervisor Platform or Hyper-V on Windows, KVM on Linux,
 Hypervisor.framework on macOS). `ANDROID_HOME` points at a non-standard SDK; `DUO_ANDROID_GPU=swiftshader_indirect`
 swaps the graphics from your GPU to software if the emulator will not start with it.

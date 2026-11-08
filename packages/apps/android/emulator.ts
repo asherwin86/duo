@@ -201,3 +201,23 @@ type Send = Record<string, unknown>
 export const send = (message: Send) => {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
 }
+
+// Typing: a burst of characters goes as one message, so a word is one trip to the device, not a letter at a time.
+let typed = ''
+let flushing: ReturnType<typeof setTimeout> | undefined
+function flush() {
+  clearTimeout(flushing)
+  flushing = undefined
+  if (typed) send({ t: 'text', text: typed })
+  typed = ''
+}
+export function typeText(text: string) {
+  typed += text
+  clearTimeout(flushing)
+  flushing = setTimeout(flush, 60)
+}
+/** A key such as Enter or Backspace, after any text typed just before it. */
+export function pressKey(code: number) {
+  flush()
+  send({ t: 'key', code })
+}
