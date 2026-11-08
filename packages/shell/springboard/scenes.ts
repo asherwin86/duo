@@ -14,7 +14,7 @@ import { flushSync } from 'react-dom'
 import { byName } from '../apps.ts'
 import { active, device, type Stage } from '../device.ts'
 import { store } from '../runtime/catalog.ts'
-import { fileHost } from '../runtime/files.ts'
+import { downloadsHost, fileHost } from '../runtime/files.ts'
 import { micHost } from '../runtime/mic.ts'
 import { deliverArg } from '../runtime/sessions.ts'
 import { type Box, type Side, settle, spot, zone, zoom } from './gestures.ts'
@@ -134,7 +134,8 @@ export function useScenes({ w, hgt, shots, disp, pageRef }: Opts) {
       // Host services reach baked apps as props the way `os.mic`/`os.files`
       // reach framed ones: same engine, keyed by the app's name.
       mic: micHost(a.name),
-      files: fileHost(`baked:${a.name}`)
+      files: fileHost(`baked:${a.name}`),
+      downloads: downloadsHost
     }
     setList([...live.current, { id, a, ctx, leaving: false, used: Date.now(), side, from }])
   }

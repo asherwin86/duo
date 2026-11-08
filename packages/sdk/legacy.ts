@@ -68,6 +68,8 @@ export type Os = {
   mic?: MicHost
   /** Durable binary storage for the app's own files (audio, renders). */
   files?: FileHost
+  /** The phone's Downloads, shared by the baked apps: Safari saves into it and Files lists it. */
+  downloads?: FileHost
 }
 
 /**

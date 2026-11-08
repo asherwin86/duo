@@ -1,4 +1,4 @@
-import { app, leading, motion, tracking, typeScale, weight } from '@doan-labs/duo-uikit/tokens.stylex.ts'
+import { app, leading, motion, space, tracking, typeScale, weight } from '@doan-labs/duo-uikit/tokens.stylex.ts'
 import * as stylex from '@stylexjs/stylex'
 
 export const styles = stylex.create({
@@ -43,5 +43,7 @@ export const styles = stylex.create({
   fIcon: { fontSize: typeScale.display, lineHeight: 1 },
   size: { fontSize: typeScale.caption2, lineHeight: leading.caption2, letterSpacing: tracking.caption2 },
   bigIcon: { fontSize: typeScale.displayLg, lineHeight: 1 },
-  count: { textAlign: 'center', paddingBlock: 6, paddingInline: 6 }
+  count: { textAlign: 'center', paddingBlock: 6, paddingInline: 6 },
+  note: { paddingTop: space.sm, textAlign: 'center' },
+  actions: { paddingTop: space.lg }
 })

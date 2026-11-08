@@ -7,6 +7,7 @@ import {
   motion,
   radius,
   shadow,
+  space,
   tracking,
   typeScale,
   weight
@@ -352,6 +353,55 @@ export const styles = stylex.create({
   // iOS 26 runs no toolbar under it on either display, so the row clears the
   // home indicator itself.
   foot: { position: 'absolute', right: 0, bottom: 0, left: 0, zIndex: 3, paddingBottom: 16, pointerEvents: 'none' },
+  // The newest download, in the bar's own glass, above the bar it came from.
+  dlToast: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: space.sm,
+    marginRight: space.md,
+    marginBottom: space.sm,
+    marginLeft: space.md,
+    paddingTop: space.sm,
+    paddingRight: space.md,
+    paddingBottom: space.sm,
+    paddingLeft: space.md,
+    borderRadius: radius.xl,
+    backgroundColor: appAppearance.safariBar,
+    boxShadow: `${shadow.card}, ${shadow.rim}`,
+    backdropFilter: appAppearance.safariBarBlur,
+    WebkitBackdropFilter: appAppearance.safariBarBlur,
+    color: app.fg,
+    pointerEvents: 'auto'
+  },
+  dlText: { flexGrow: 1, minWidth: 0 },
+  dlName: {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    fontSize: typeScale.subheadline,
+    lineHeight: leading.subheadline,
+    letterSpacing: tracking.subheadline,
+    fontWeight: weight.semibold
+  },
+  dlLine: {
+    color: app.label2,
+    fontSize: typeScale.footnote,
+    lineHeight: leading.footnote,
+    letterSpacing: tracking.footnote
+  },
+  dlClose: {
+    display: 'grid',
+    placeItems: 'center',
+    flexShrink: 0,
+    width: space.xxl,
+    height: space.xxl,
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: radius.circle,
+    backgroundColor: 'transparent',
+    color: app.label2,
+    cursor: 'pointer'
+  },
   // The page menu rises from the address bar, so it lives in the foot with it.
   // A transparent scrim over the page takes the tap that dismisses it — the page
   // is a cross-origin frame and never reports a click of its own.

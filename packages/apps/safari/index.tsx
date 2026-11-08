@@ -8,6 +8,15 @@ import { Sym, type SymProps } from '@doan-labs/duo-uikit/sym.tsx'
 import * as stylex from '@stylexjs/stylex'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Bookmarks } from './bookmarks.tsx'
+import {
+  downloadName,
+  fetchFile,
+  isPackage,
+  megabytes,
+  ServerError,
+  saveToComputer,
+  sendToComputer
+} from './download.ts'
 import { ALLOW, frame as frameSrc, referrer } from './embed.ts'
 import { host, type MarkList, mark, retitle, safari, visit } from './store.ts'
 import { styles } from './styles.ts'
@@ -65,6 +74,9 @@ export const Safari = ({ os }: { os: Os }) => {
   const [barHidden, setBarHidden] = useState(false)
   const [holding, setHolding] = useState(false)
   const [wake, setWake] = useState(0)
+  // The newest download: shown above the bar while it runs and for a few seconds after.
+  const [dl, setDl] = useState<{ name: string; line: string; busy: boolean } | null>(null)
+  const dlAbort = useRef<AbortController | null>(null)
   const bookmarkPage = usePresence(bookmarks)
   const cards = usePresence(grid)
   const t = tabs.find((x) => x.id === cur) ?? tabs[0]!
@@ -132,6 +144,43 @@ export const Safari = ({ os }: { os: Os }) => {
     show(t.hist, next)
     if (!t.priv && next !== t.at) visit(t.hist[next]!, host(t.hist[next]!))
   }
+  // Fetch it here to keep a copy in Files and give the computer one. A site that does not let
+  // this page read its file still downloads, to the computer only, through a hidden frame.
+  const download = async (target: string) => {
+    if (os.mirror) return
+    dlAbort.current?.abort()
+    const control = new AbortController()
+    dlAbort.current = control
+    const name = downloadName(target)
+    setDl({ name, line: 'Starting…', busy: true })
+    try {
+      const blob = await fetchFile(
+        target,
+        (got, total) =>
+          setDl({ name, line: total ? `${megabytes(got)} of ${megabytes(total)}` : megabytes(got), busy: true }),
+        control.signal
+      )
+      saveToComputer(blob, name)
+      let line = `${megabytes(blob.size)} · Saved to Files and your computer`
+      try {
+        if (!os.downloads) throw new Error('no store')
+        await os.downloads.put(name, blob)
+      } catch (e) {
+        line = `${megabytes(blob.size)} · Sent to your computer; the phone could not keep it${e instanceof Error && /quota|full|many/i.test(e.message) ? ' (storage is full)' : ''}`
+      }
+      setDl({ name, line, busy: false })
+    } catch (e) {
+      if (control.signal.aborted) return
+      if (e instanceof ServerError) return setDl({ name, line: e.message, busy: false })
+      sendToComputer(target)
+      setDl({ name, line: 'Sent to your computer; this site does not let the phone keep a copy', busy: false })
+    }
+  }
+  useEffect(() => {
+    if (!dl || dl.busy) return
+    const id = setTimeout(() => setDl(null), 7000)
+    return () => clearTimeout(id)
+  }, [dl])
   const go = (v: string) => {
     v = v.trim()
     if (!v) return
@@ -139,6 +188,14 @@ export const Safari = ({ os }: { os: Os }) => {
       v = /\s|^[^.]+$/.test(v)
         ? `https://en.m.wikipedia.org/w/index.php?search=${encodeURIComponent(v)}`
         : `https://${v}`
+    // A package file is kept, not shown: the page stays where it is.
+    if (isPackage(v)) {
+      setText(url ? host(url) : '')
+      setMoreOpen(false)
+      setPageMenu(false)
+      void download(v)
+      return
+    }
     const h = [...t.hist.slice(0, t.at + 1), v]
     show(h, h.length - 1)
     if (!t.priv) visit(v, host(v))
@@ -447,6 +504,26 @@ export const Safari = ({ os }: { os: Os }) => {
         )}
         {!bookmarks && (
           <div {...stylex.props(styles.foot)}>
+            {dl && (
+              <div {...stylex.props(dark, styles.dlToast, animations.fade)} role="status">
+                <Sym name="share" size={18} />
+                <div {...stylex.props(styles.dlText)}>
+                  <div {...stylex.props(styles.dlName)}>{dl.name}</div>
+                  <div {...stylex.props(styles.dlLine)}>{dl.line}</div>
+                </div>
+                <button
+                  type="button"
+                  {...stylex.props(styles.dlClose)}
+                  aria-label={dl.busy ? 'Cancel download' : 'Dismiss'}
+                  onClick={() => {
+                    if (dl.busy) dlAbort.current?.abort()
+                    setDl(null)
+                  }}
+                >
+                  <Sym name="close" size={14} />
+                </button>
+              </div>
+            )}
             <Menu
               open={pageMenu}
               onClose={() => setPageMenu(false)}
