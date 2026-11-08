@@ -7,7 +7,7 @@ import { compile } from './compiler'
 import { PreviewClient } from './preview-client'
 import { downloadProject, listProjects, newProject, saveProject } from './projects'
 import { prompt } from './prompt'
-import { type Connection, completion, models, PROVIDERS } from './provider'
+import { type Connection, completion, models, PROVIDERS, suggestModel } from './provider'
 import { type Project, parseResponse, type Source } from './types'
 
 const SUGGESTIONS = ['Make me a timer app', 'Build a simple notes app', 'Make a daily habit counter']
@@ -54,6 +54,8 @@ export function Workspace({
   const [token, setToken] = useState('')
   const [client, setClient] = useState<PreviewClient>()
   const controller = useRef<AbortController | null>(null)
+  const connectionRef = useRef(connection)
+  connectionRef.current = connection
   const current = useRef(project)
   current.current = project
   const saved = useRef(Promise.resolve())
@@ -181,6 +183,7 @@ export function Workspace({
   }, [project?.messages.length, stage])
   // The model list follows the endpoint and key while the panel is open; typing a key waits half a second.
   const { endpoint, key } = connection
+  // biome-ignore lint/correctness/useExhaustiveDependencies: updateConnection only saves the choice; the list refetches on the endpoint and key alone
   useEffect(() => {
     if (!settings) return
     const control = new AbortController()
@@ -189,6 +192,18 @@ export function Workspace({
       models({ endpoint, key, model: '' }, control.signal)
         .then((list) => {
           setModelList(list)
+          const chosen = connectionRef.current.model.trim()
+          if (list.length && chosen && !list.includes(chosen)) {
+            // The key's own list is the truth about what it can call; the saved or default name may be retired.
+            const pick = suggestModel(endpoint, list)
+            if (pick) updateConnection({ ...connectionRef.current, model: pick })
+            setModelNote(
+              pick
+                ? `${chosen} is not offered to this key; using ${pick}.`
+                : `${chosen} is not in this key's ${list.length} models. Pick one from the list.`
+            )
+            return
+          }
           setModelNote(
             list.length ? `${list.length} models available. Type to search.` : 'No models listed. Type an ID.'
           )

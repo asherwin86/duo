@@ -21,7 +21,7 @@ export const PROVIDERS: Provider[] = [
     id: 'google',
     name: 'Google Gemini',
     endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    model: 'gemini-2.5-flash',
+    model: 'gemini-flash-latest',
     keys: 'https://aistudio.google.com/apikey'
   },
   {
@@ -53,6 +53,18 @@ export async function models(connection: Connection, signal: AbortSignal): Promi
     .filter(Boolean)
     .map((id) => id.replace(/^models\//, ''))
     .sort()
+}
+/**
+ * A model to use when the one selected is not on the list the key was given. Only Gemini is
+ * guessed for: its names turn over every few months, and the alias or the newest plain Flash
+ * is a safe stand-in. Anything else is the person's choice, so there is no answer.
+ */
+export function suggestModel(endpoint: string, list: string[]) {
+  if (!endpoint.includes('generativelanguage.googleapis.com')) return undefined
+  if (list.includes('gemini-flash-latest')) return 'gemini-flash-latest'
+  return list
+    .filter((id) => /^gemini-[\d.]+-flash$/.test(id))
+    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0]
 }
 export function endpointURL(base: string) {
   const url = new URL(base.trim())
@@ -112,6 +124,7 @@ export async function completion(
     void response.body?.cancel().catch(() => {})
     const reason: Record<number, string> = {
       400: 'Provider rejected the request (400). Check the model ID and that it supports chat completions.',
+      404: 'Provider could not find that model or address (404). Pick a model from the Model list in Connection.',
       401: 'API key was rejected',
       403: 'Access denied by the provider',
       402: 'Provider credits are exhausted',

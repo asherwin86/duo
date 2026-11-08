@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test'
 import { example } from './example'
-import { completion, endpointURL } from './provider'
+import { completion, endpointURL, suggestModel } from './provider'
 import { parseResponse, parseSource } from './types'
 
 const original = globalThis.fetch
@@ -90,6 +90,17 @@ test('an unexplained 400 says what to check and is not retried', async () => {
   }) as typeof fetch
   await expect(completion(connection, messages, new AbortController().signal)).rejects.toThrow('Check the model ID')
   expect(calls).toBe(1)
+})
+test('a Gemini key that does not offer the chosen model gets the alias, else the newest plain Flash', () => {
+  const google = 'https://generativelanguage.googleapis.com/v1beta/openai'
+  expect(suggestModel(google, ['gemini-2.5-pro', 'gemini-flash-latest', 'gemini-3.5-flash'])).toBe(
+    'gemini-flash-latest'
+  )
+  expect(
+    suggestModel(google, ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.5-flash-image'])
+  ).toBe('gemini-3.5-flash')
+  expect(suggestModel(google, ['gemini-2.5-pro'])).toBeUndefined()
+  expect(suggestModel('https://api.openai.com/v1', ['gpt-5', 'gemini-flash-latest'])).toBeUndefined()
 })
 test('does not display provider error bodies containing credentials', async () => {
   globalThis.fetch = (async () => new Response(connection.key, { status: 401 })) as typeof fetch
