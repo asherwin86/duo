@@ -49,6 +49,17 @@ test('truncation and disconnected streams never become revisions', async () => {
     'before a complete response'
   )
 })
+test('the connection test accepts a reply that stops at its token cap, even an empty one', async () => {
+  globalThis.fetch = (async () =>
+    response(['data: {"choices":[{"delta":{"content":"O"},"finish_reason":"length"}]}\n\n'])) as typeof fetch
+  expect(await completion(connection, messages, new AbortController().signal, undefined, true)).toBe('O')
+  globalThis.fetch = (async () =>
+    response(['data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n'])) as typeof fetch
+  expect(await completion(connection, messages, new AbortController().signal, undefined, true)).toBe('')
+  globalThis.fetch = (async () =>
+    response(['data: {"choices":[{"delta":{"content":"O"},"finish_reason":"length"}]}\n\n'])) as typeof fetch
+  await expect(completion(connection, messages, new AbortController().signal)).rejects.toThrow('truncated')
+})
 test('does not display provider error bodies containing credentials', async () => {
   globalThis.fetch = (async () => new Response(connection.key, { status: 401 })) as typeof fetch
   await expect(completion(connection, messages, new AbortController().signal)).rejects.toThrow('API key was rejected')

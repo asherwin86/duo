@@ -114,7 +114,12 @@ export async function completion(
     const data = JSON.parse(json)
     if (data.error) throw new Error('Provider reported a generation error')
     const choice = data.choices?.[0]
-    if (choice?.finish_reason === 'length') throw new Error('Response was truncated. Ask for a smaller app.')
+    // The connection test caps the reply at a few tokens, so stopping there is the expected end,
+    // not a cut-off app. A generated revision that hits the cap is still refused.
+    if (choice?.finish_reason === 'length') {
+      if (!test) throw new Error('Response was truncated. Ask for a smaller app.')
+      complete = true
+    }
     if (choice?.finish_reason === 'content_filter') throw new Error('Provider declined this request')
     const content = choice?.delta?.content ?? choice?.message?.content
     if (typeof content === 'string') {
@@ -147,7 +152,8 @@ export async function completion(
     }
     buffer += decoder.decode()
     if (!streaming) consume(buffer)
-    if (!complete || !output.trim()) throw new Error('Provider stream ended before a complete response')
+    // A model that reasons first can spend the whole test cap before saying anything; it answered, which is the test.
+    if (!complete || (!test && !output.trim())) throw new Error('Provider stream ended before a complete response')
     return output
   } finally {
     await reader.cancel().catch(() => {})
