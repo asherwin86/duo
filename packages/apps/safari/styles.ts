@@ -375,7 +375,25 @@ export const styles = stylex.create({
     gap: 8,
     paddingRight: 12,
     paddingBottom: 8,
-    paddingLeft: 12
+    paddingLeft: 12,
+    transitionProperty: 'transform, opacity',
+    transitionDuration: { default: '.45s', '@media (prefers-reduced-motion: reduce)': '0s' },
+    transitionTimingFunction: easing.spring
+  },
+  // Left alone a while, the bar slides off the bottom edge and takes its taps with
+  // it; the strip below is what brings it back.
+  footHidden: { transform: 'translateY(120%)', opacity: 0, pointerEvents: 'none' },
+  footWake: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 3,
+    height: 28,
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: 'transparent',
+    cursor: 'pointer'
   },
   // The row wears the kit's dark theme, so the glyphs, the type and the
   // placeholder on the glass all read from `app` as they would in a dark app.

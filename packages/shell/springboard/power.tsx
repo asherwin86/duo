@@ -45,12 +45,13 @@ const Apple = () => (
  * so it eases out and crawls rather than claiming progress it can't see.
  */
 /**
- * How long the logo stays up at minimum. Only on localhost, where demos are
- * recorded: a visitor's boot takes exactly as long as the load.
+ * How long the logo stays up at minimum. Only when the page asks with `?slowboot`
+ * (demos are recorded that way): every other boot takes exactly as long as the load.
  */
-export const BOOT_MS = typeof location !== 'undefined' && location.hostname === 'localhost' ? 3000 : 0
+export const BOOT_MS =
+  typeof location !== 'undefined' && new URLSearchParams(location.search).has('slowboot') ? 3000 : 0
 /** The logo's fade into the booted screen; the caller keeps it mounted this long with `leaving`. */
-export const BOOT_FADE_MS = 700
+export const BOOT_FADE_MS = 400
 
 export const BootScreen = ({ error, leaving }: { error?: string; leaving?: boolean }) => (
   <div data-boot {...stylex.props(styles.boot, leaving && styles.bootOut)}>

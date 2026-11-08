@@ -3,6 +3,7 @@
 // as real files, the way `bun build` and Tauri ship it.
 import index from './packages/shell/index.html'
 import { buildPreinstalled } from './scripts/build-preinstalled.ts'
+import { startYoutubeProxy } from './scripts/youtube-proxy.ts'
 
 await buildPreinstalled()
 
@@ -20,4 +21,8 @@ Bun.serve({
     return new Response('Not found', { status: 404 })
   }
 })
+startYoutubeProxy()
 console.log(`http://localhost:${port}/`)
+// Bun bundles the page on its first request, which is seconds of blank page for
+// whoever loads it first. Ask for it once now so that is no one's browser.
+void fetch(`http://localhost:${port}/`).catch(() => {})

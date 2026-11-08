@@ -25,6 +25,8 @@ export const subscribeRegistry = (fn: () => void) => {
   }
 }
 let boot: Promise<void> | undefined
+/** How many bundled apps install at once on a first boot. */
+const SEED_CONCURRENCY = 6
 let refreshing = Promise.resolve()
 export function refreshRegistry() {
   refreshing = refreshing
@@ -44,6 +46,10 @@ export function refreshRegistry() {
           icons.delete(id)
         }
       for (const app of installed) {
+        // A tile already drawn from this very release has nothing new to read. Opening the
+        // stored bundle for it again, for every app on every refresh, was most of a first boot.
+        if (!development.has(app.id) && icons.get(app.id)?.release === app.current && APPS.some((a) => a.id === app.id))
+          continue
         const bundle = development.get(app.id)?.bundle ?? (await getRelease(app.current))
         if (!bundle) continue
         const old = icons.get(app.id)
@@ -86,10 +92,19 @@ export function bootRegistry() {
     const response = await fetch('/preinstalled/index.json')
     if (!response.ok) throw new Error('Preinstalled catalog unavailable')
     const catalog: Catalog = await response.json()
-    for (const [id, app] of Object.entries(catalog.apps)) {
-      const release = app.releases.find((r) => supports(r.sdk))
-      if (release) await install(id, `/preinstalled/apps/${id}/${release.release}/`, release, { seeded: true })
+    // Each app installs under its own lock and in its own transactions, so a few
+    // run at once: a first visit downloads and hashes every bundled app, and one
+    // after another that was most of the boot. The home screen's order is read back
+    // from storage by refreshRegistry below, so it does not depend on who finishes first.
+    const queue = Object.entries(catalog.apps)
+    const worker = async () => {
+      for (let next = queue.shift(); next; next = queue.shift()) {
+        const [id, app] = next
+        const release = app.releases.find((r) => supports(r.sdk))
+        if (release) await install(id, `/preinstalled/apps/${id}/${release.release}/`, release, { seeded: true })
+      }
     }
+    await Promise.all(Array.from({ length: SEED_CONCURRENCY }, worker))
     const dev = new URLSearchParams(location.search).get('dev')
     if (dev) {
       if (!PREVIEW_FEATURES.developmentLoader)

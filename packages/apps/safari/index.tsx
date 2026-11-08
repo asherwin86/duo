@@ -8,6 +8,7 @@ import { Sym, type SymProps } from '@doan-labs/duo-uikit/sym.tsx'
 import * as stylex from '@stylexjs/stylex'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Bookmarks } from './bookmarks.tsx'
+import { ALLOW, frame as frameSrc, referrer } from './embed.ts'
 import { host, type MarkList, mark, retitle, safari, visit } from './store.ts'
 import { styles } from './styles.ts'
 
@@ -29,6 +30,8 @@ const textWidth = (el: HTMLInputElement | null, s: string) => {
   return c.measureText(s).width
 }
 // Safari's Page Zoom steps, 50% to 300%, remembered per site.
+// How long the bar stays out with nothing touching it before it slides away.
+const HIDE_MS = 3000
 const ZOOM = [0.5, 0.75, 0.85, 1, 1.15, 1.25, 1.5, 1.75, 2, 2.5, 3]
 
 // Cross-origin frames hide their own history, so each tab keeps its own back
@@ -57,12 +60,27 @@ export const Safari = ({ os }: { os: Os }) => {
   const [pageMenu, setPageMenu] = useState(false)
   const [urlCompact, setUrlCompact] = useState(false)
   const [zooms, setZooms] = useState<Record<string, number>>({})
+  // The bar slides off after HIDE_MS of rest. `holding` is a pointer or focus on
+  // it; `wake` re-arms the timer when the edge strip brings it back.
+  const [barHidden, setBarHidden] = useState(false)
+  const [holding, setHolding] = useState(false)
+  const [wake, setWake] = useState(0)
   const bookmarkPage = usePresence(bookmarks)
   const cards = usePresence(grid)
   const t = tabs.find((x) => x.id === cur) ?? tabs[0]!
   const list = tabs.filter((x) => x.priv === priv)
   const count = tabs.length - tabs.filter((x) => x.priv).length
   const url = at(t)
+  // The cover's rail is a column beside the status stack, not a bar to slide off.
+  const resting =
+    !!url && !grid && !bookmarks && !pageMenu && !moreOpen && !pickFor && !holding && os.display !== 'cover'
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new page, tab or wake re-arms the timer though nothing in the body reads them
+  useEffect(() => {
+    setBarHidden(false)
+    if (!resting) return
+    const id = setTimeout(() => setBarHidden(true), HIDE_MS)
+    return () => clearTimeout(id)
+  }, [resting, url, t.id, wake])
   const [text, setText] = useState(() => (url ? host(url) : ''))
   const surface = useRef<HTMLDivElement>(null)
   const frame = useRef<HTMLIFrameElement>(null)
@@ -132,7 +150,7 @@ export const Safari = ({ os }: { os: Os }) => {
   }
   // Re-assigning the same src is how an iframe reloads; React would see no change.
   const reload = () => {
-    if (frame.current && url) frame.current.src = url
+    if (frame.current && url) frame.current.src = frameSrc(url)
     if (url) setText(host(url))
   }
   const pick = (x: Tab) => {
@@ -292,12 +310,17 @@ export const Safari = ({ os }: { os: Os }) => {
       <div {...stylex.props(styles.page)}>
         <div ref={surface} {...stylex.props(styles.scroll)}>
           {url ? (
+            // Keyed by policy: React sets `src` before `referrerPolicy` on a reused frame, so
+            // a navigation onto YouTube would start under the previous page's no-referrer.
             // biome-ignore lint/a11y/noNoninteractiveElementInteractions: a page frame's load is how a real title reaches the store
             <iframe
+              key={referrer(url)}
               ref={frame}
               title="Page"
-              src={url}
-              referrerPolicy="no-referrer"
+              src={frameSrc(url)}
+              allow={ALLOW}
+              allowFullScreen
+              referrerPolicy={referrer(url)}
               onLoad={() => {
                 const title = pageTitle()
                 if (!t.priv && url && title) retitle(url, title)
@@ -358,7 +381,13 @@ export const Safari = ({ os }: { os: Os }) => {
                       aria-label={name(x)}
                     >
                       {u ? (
-                        <iframe title={name(x)} src={u} referrerPolicy="no-referrer" {...stylex.props(styles.peek)} />
+                        <iframe
+                          key={referrer(u)}
+                          title={name(x)}
+                          src={frameSrc(u)}
+                          referrerPolicy={referrer(u)}
+                          {...stylex.props(styles.peek)}
+                        />
                       ) : (
                         <span {...stylex.props(styles.peekStart)}>{name(x)}</span>
                       )}
@@ -407,6 +436,15 @@ export const Safari = ({ os }: { os: Os }) => {
             }}
           />
         )}
+        {barHidden && (
+          <button
+            type="button"
+            {...stylex.props(styles.footWake)}
+            aria-label="Show toolbar"
+            onPointerEnter={() => setWake((n) => n + 1)}
+            onClick={() => setWake((n) => n + 1)}
+          />
+        )}
         {!bookmarks && (
           <div {...stylex.props(styles.foot)}>
             <Menu
@@ -427,7 +465,16 @@ export const Safari = ({ os }: { os: Os }) => {
               items={more}
               footer={moreFoot}
             />
-            <div {...stylex.props(dark, styles.footRow)}>
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: the handlers only watch whether a pointer or focus is on the bar; the controls inside are the interactive elements */}
+            {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: same: the bar itself takes no action */}
+            <div
+              {...stylex.props(dark, styles.footRow, barHidden && styles.footHidden)}
+              inert={barHidden}
+              onPointerEnter={() => setHolding(true)}
+              onPointerLeave={() => setHolding(false)}
+              onFocus={() => setHolding(true)}
+              onBlur={() => setHolding(false)}
+            >
               {grid ? (
                 <>
                   <button

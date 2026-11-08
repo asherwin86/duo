@@ -736,8 +736,14 @@ const smooth = (x: number) => x * x * (3 - 2 * x)
 /** The cover panel answers a finger only while flat, so `coverTouch` is written on change. */
 let coverTouch = true
 let last = performance.now()
+// A video taken fullscreen covers the whole display, so the scene behind it is
+// work for nothing: the GPU and the main thread go to the video instead.
+let covered = false
+document.addEventListener('fullscreenchange', () => {
+  covered = document.fullscreenElement !== null
+})
 renderer.setAnimationLoop((now) => {
-  if (paused) {
+  if (paused || covered) {
     last = now
     return
   }
