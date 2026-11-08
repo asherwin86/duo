@@ -21,7 +21,7 @@ export const PROVIDERS: Provider[] = [
     id: 'google',
     name: 'Google Gemini',
     endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    model: 'gemini-2.5-pro',
+    model: 'gemini-2.5-flash',
     keys: 'https://aistudio.google.com/apikey'
   },
   {
