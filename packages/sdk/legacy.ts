@@ -39,6 +39,21 @@ export type CameraHooks = {
   burst?: (on: boolean) => void
 }
 
+/**
+ * The phone's Downloads. In the dev server it is a real folder on the computer (`folder()` names it), so
+ * a file dropped there shows up on the phone; a built site keeps Downloads in the browser and has no folder.
+ */
+export type DownloadsHost = FileHost & {
+  /** The folder on disk behind Downloads, or null when this page has none. */
+  folder(): Promise<string | null>
+  /** Save straight into the folder, with no browser save window. On by default; it means nothing without a folder. */
+  auto(): boolean
+  setAuto(on: boolean): void
+  subscribe(cb: () => void): () => void
+  /** Have the folder's server fetch an address into it: works for sites a page is not allowed to read. */
+  fetchInto(url: string, name: string): Promise<StoredFile>
+}
+
 export type Os = {
   store?: import('./store.ts').Store
   /** Photos taken in Camera, newest first. One array per display. */
@@ -69,7 +84,7 @@ export type Os = {
   /** Durable binary storage for the app's own files (audio, renders). */
   files?: FileHost
   /** The phone's Downloads, shared by the baked apps: Safari saves into it and Files lists it. */
-  downloads?: FileHost
+  downloads?: DownloadsHost
 }
 
 /**

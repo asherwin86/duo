@@ -11,6 +11,9 @@ dist/
 # No trailing slash: a worktree usually links this at the main checkout's copy.
 public/model
 
+# The Duo's storage folder on disk (scripts/storage-folder.ts): what the phone holds, not source
+storage/
+
 # Blender scratch output
 design/blender/tex/
 design/blender/render/

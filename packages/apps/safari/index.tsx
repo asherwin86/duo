@@ -153,6 +153,19 @@ export const Safari = ({ os }: { os: Os }) => {
     dlAbort.current = control
     const name = downloadName(target)
     setDl({ name, line: 'Starting…', busy: true })
+    // With a storage folder and the setting on, the folder's server fetches the file itself: it lands in the
+    // folder with no browser save window, and a site that will not let this page read it is no obstacle.
+    if (os.downloads && (await os.downloads.folder().catch(() => null)) && os.downloads.auto()) {
+      setDl({ name, line: 'Saving to the storage folder…', busy: true })
+      try {
+        const saved = await os.downloads.fetchInto(target, name)
+        setDl({ name, line: `${megabytes(saved.size)} · Saved to the storage folder`, busy: false })
+      } catch (e) {
+        if (!control.signal.aborted)
+          setDl({ name, line: e instanceof Error ? e.message : 'The file could not be saved', busy: false })
+      }
+      return
+    }
     try {
       const blob = await fetchFile(
         target,

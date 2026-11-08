@@ -5,7 +5,7 @@
 // delete never leaks bytes a retry would have to pay for twice.
 
 import { fileNameValid, PlatformError } from '../../sdk/guards.ts'
-import type { FileHost } from '../../sdk/legacy.ts'
+import type { DownloadsHost, FileHost } from '../../sdk/legacy.ts'
 import { LIMITS, type StoredFile } from '../../sdk/protocol.ts'
 import { entries, put, read, result, transaction } from './database.ts'
 
@@ -69,11 +69,84 @@ export const fileHost = (ns: string): FileHost => ({
   del: (name: string) => fileService(ns, 'file.del', { name }) as Promise<void>
 })
 
-/** Safari writes here and Files reads: the one namespace every baked app shares. */
-export const downloadsHost: FileHost = {
-  list: () => fileService('shared:downloads', 'file.list', {}, DOWNLOAD_LIMITS) as Promise<StoredFile[]>,
-  get: (name) => fileService('shared:downloads', 'file.get', { name }, DOWNLOAD_LIMITS) as Promise<Blob | null>,
-  put: (name, blob) =>
-    fileService('shared:downloads', 'file.put', { name, blob }, DOWNLOAD_LIMITS) as Promise<StoredFile>,
-  del: (name) => fileService('shared:downloads', 'file.del', { name }, DOWNLOAD_LIMITS) as Promise<void>
+const AUTO_KEY = 'os.downloads.auto'
+const autoSubs = new Set<() => void>()
+/** Whether a folder-backed download skips the browser's save window; on until the person turns it off. */
+const readAuto = () => {
+  try {
+    return localStorage.getItem(AUTO_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
+let folder: Promise<string | null> | undefined
+/** The dev server's storage folder, asked once. A built site answers the probe with a page or nothing, never JSON. */
+const probe = () =>
+  (folder ??= fetch('/__storage/info', { cache: 'no-store' })
+    .then(async (r) =>
+      r.ok && r.headers.get('content-type')?.includes('json') ? ((await r.json()).path as string) : null
+    )
+    .catch(() => null))
+const asFile = (x: unknown): StoredFile => x as StoredFile
+async function reply(r: Response): Promise<unknown> {
+  if (r.ok) return r.status === 204 ? undefined : r.json()
+  const detail = await r.json().catch(() => null)
+  throw new PlatformError(
+    r.status === 413 ? 'E_QUOTA' : 'E_ARGS',
+    detail?.error ?? `The storage folder answered ${r.status}`
+  )
+}
+const path = (name: string) => `/__storage/downloads/${encodeURIComponent(name)}`
+const here = (method: string, p: Record<string, unknown>) => fileService('shared:downloads', method, p, DOWNLOAD_LIMITS)
+
+/**
+ * Safari writes here and Files reads: the one namespace every baked app shares. With the dev server it is the
+ * storage folder on disk; without, the browser's own store.
+ */
+export const downloadsHost: DownloadsHost = {
+  folder: probe,
+  auto: readAuto,
+  setAuto(on) {
+    try {
+      localStorage.setItem(AUTO_KEY, on ? 'on' : 'off')
+    } catch {
+      /* The choice lasts until reload. */
+    }
+    for (const fn of autoSubs) fn()
+  },
+  subscribe(fn) {
+    autoSubs.add(fn)
+    return () => {
+      autoSubs.delete(fn)
+    }
+  },
+  async list() {
+    if (!(await probe())) return (await here('file.list', {})) as StoredFile[]
+    return (await reply(await fetch('/__storage/downloads', { cache: 'no-store' }))) as StoredFile[]
+  },
+  async get(name) {
+    if (!(await probe())) return (await here('file.get', { name })) as Blob | null
+    const r = await fetch(path(name))
+    return r.ok ? r.blob() : null
+  },
+  async put(name, blob) {
+    if (!(await probe())) return (await here('file.put', { name, blob })) as StoredFile
+    return asFile(await reply(await fetch(path(name), { method: 'PUT', body: blob })))
+  },
+  async del(name) {
+    if (!(await probe())) return void (await here('file.del', { name }))
+    await reply(await fetch(path(name), { method: 'DELETE' }))
+  },
+  async fetchInto(url, name) {
+    if (!(await probe())) throw new PlatformError('E_ARGS', 'There is no storage folder to fetch into')
+    return asFile(
+      await reply(
+        await fetch('/__storage/fetch', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ url, name })
+        })
+      )
+    )
+  }
 }

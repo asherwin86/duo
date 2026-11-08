@@ -55,6 +55,11 @@ The model is downloaded into `public/model` and stays out of Git because it is n
 redistributable. Native development currently focuses on macOS; Windows and Linux
 parity has not been verified.
 
+The dev server also keeps a **storage folder** on your computer, `storage/Downloads` (git-ignored; set
+`DUO_STORAGE` to move it). It is the phone's Files > On My iPhone > Downloads: put an APK, IPA or any file in it
+and it shows up on the phone, and Safari saves downloads into it with no save window. Settings > General > Duo
+Storage has the switch for that. A built site has no server, so there Downloads stay in the browser.
+
 | Command | Purpose |
 | --- | --- |
 | `bun run dev` | Start the simulator in the browser |

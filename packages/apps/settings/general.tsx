@@ -3,9 +3,10 @@
 // the store and from `navigator.storage.estimate()`, and Erase All Content and
 // Settings really does empty the device and reboot it.
 
-import type { Os, SettingsHost } from '@doan-labs/duo-sdk'
+import type { DownloadsHost, Os, SettingsHost } from '@doan-labs/duo-sdk'
 import { HOST_SDK } from '@doan-labs/duo-sdk/compat.ts'
 import type { Store } from '@doan-labs/duo-sdk/store.ts'
+import { Toggle } from '@doan-labs/duo-uikit'
 import { shared, typography } from '@doan-labs/duo-uikit/styles.ts'
 import { Sym } from '@doan-labs/duo-uikit/sym.tsx'
 import { colors } from '@doan-labs/duo-uikit/tokens.stylex.ts'
@@ -45,7 +46,7 @@ export function GeneralPage({ os, host }: { os: Os; host: SettingsHost }) {
           title="Duo Storage"
           icon={<Glyph name="folder" bg={colors.grey} />}
           label="Duo Storage"
-          page={() => <StoragePage store={os.store} />}
+          page={() => <StoragePage store={os.store} downloads={os.downloads} />}
         />
       </Section>
       <Section>
@@ -130,7 +131,46 @@ function UpdatePage() {
   )
 }
 
-function StoragePage({ store }: { store?: Store }) {
+/** The folder behind Downloads and the one setting about it; there is no folder on a built site, so there is nothing to set. */
+function FolderSection({ downloads }: { downloads?: DownloadsHost }) {
+  const [path, setPath] = useState<string | null | undefined>(undefined)
+  useEffect(() => {
+    let alive = true
+    void (downloads?.folder() ?? Promise.resolve(null)).then((p) => alive && setPath(p))
+    return () => {
+      alive = false
+    }
+  }, [downloads])
+  const auto = useSyncExternalStore(downloads?.subscribe ?? noStore, downloads?.auto ?? (() => false))
+  if (path === undefined) return null
+  return (
+    <>
+      <Head>Storage Folder</Head>
+      <Section>
+        <Row
+          label="Folder"
+          subtitle={path ?? 'This page was not opened from the dev server, so Downloads stay in the browser.'}
+        />
+        <Row label="Save Downloads Automatically" subtitle="Straight into the folder, with no save window">
+          <Toggle
+            aria-label="Save Downloads Automatically"
+            checked={Boolean(path) && auto}
+            disabled={!path}
+            onChange={() => downloads?.setAuto(!auto)}
+            xstyle={styles.sw}
+          />
+        </Row>
+      </Section>
+      <Note>
+        {path
+          ? 'Put an APK, an IPA or any file in the folder and it shows up in Files under On My iPhone, Downloads. What Safari downloads is saved there. With the setting off, Safari asks your browser to save each file instead, and keeps a copy in the folder.'
+          : 'Run the dev server with bun run dev to give this phone a folder on your computer.'}
+      </Note>
+    </>
+  )
+}
+
+function StoragePage({ store, downloads }: { store?: Store; downloads?: DownloadsHost }) {
   const rows = useSyncExternalStore(
     store?.subscribe ?? noStore,
     store?.snapshot ?? emptyStore,
@@ -178,6 +218,7 @@ function StoragePage({ store }: { store?: Store }) {
           </span>
         </div>
       </div>
+      <FolderSection downloads={downloads} />
       <Head>Installed apps · {size(apps)}</Head>
       <Section>
         {rows.length ? (

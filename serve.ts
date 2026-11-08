@@ -3,6 +3,7 @@
 // as real files, the way `bun build` and Tauri ship it.
 import index from './packages/shell/index.html'
 import { buildPreinstalled } from './scripts/build-preinstalled.ts'
+import { storage, storageFolder } from './scripts/storage-folder.ts'
 import { startYoutubeProxy } from './scripts/youtube-proxy.ts'
 
 await buildPreinstalled()
@@ -13,6 +14,8 @@ Bun.serve({
   routes: { '/': index },
   development: { hmr: true, console: true },
   async fetch(req) {
+    const stored = await storage(req)
+    if (stored) return stored
     const path = decodeURIComponent(new URL(req.url).pathname)
     const file = Bun.file(
       `${path.startsWith('/cdn/') || path.startsWith('/preinstalled/') ? './dist' : './public'}${path}`
@@ -23,6 +26,7 @@ Bun.serve({
 })
 startYoutubeProxy()
 console.log(`http://localhost:${port}/`)
+console.log(`Duo storage folder: ${storageFolder}`)
 // Bun bundles the page on its first request, which is seconds of blank page for
 // whoever loads it first. Ask for it once now so that is no one's browser.
 void fetch(`http://localhost:${port}/`).catch(() => {})
