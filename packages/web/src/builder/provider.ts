@@ -1,8 +1,20 @@
 export type Connection = { endpoint: string; model: string; key: string }
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
-export type Provider = { id: string; name: string; endpoint: string; model: string; keys: string }
+export type Provider = {
+  id: string
+  name: string
+  endpoint: string
+  model: string
+  keys: string
+  /** Runs on the person's own computer: plain http on loopback is allowed and the key is optional. */
+  local?: boolean
+  /** What the key field is for, when the server is local and may not need one. */
+  keyHint?: string
+}
 /** OpenAI-compatible endpoints known to allow browser requests. Anything else is a custom endpoint. */
 export const PROVIDERS: Provider[] = [
+  // The first entry is what a new visitor starts on, so it stays a hosted one: a local preset would make every
+  // visitor's browser knock on their own port 11434 before they asked for it.
   {
     id: 'openrouter',
     name: 'OpenRouter',
@@ -30,6 +42,24 @@ export const PROVIDERS: Provider[] = [
     endpoint: 'https://api.groq.com/openai/v1',
     model: 'openai/gpt-oss-120b',
     keys: 'https://console.groq.com/keys'
+  },
+  {
+    id: 'ollama',
+    name: 'Ollama (this computer)',
+    endpoint: 'http://localhost:11434/v1',
+    model: '',
+    keys: 'https://ollama.com/download',
+    local: true,
+    keyHint: 'Not needed for Ollama'
+  },
+  {
+    id: 'open-webui',
+    name: 'Open WebUI (this computer)',
+    endpoint: 'http://localhost:3000/api',
+    model: '',
+    keys: 'http://localhost:3000',
+    local: true,
+    keyHint: 'Open WebUI key: Settings, Account, API keys'
   }
 ]
 /** Model IDs the endpoint lists; OpenRouter answers without a key, the others need one. */
@@ -54,22 +84,58 @@ export async function models(connection: Connection, signal: AbortSignal): Promi
     .map((id) => id.replace(/^models\//, ''))
     .sort()
 }
+/** A server on this computer: the only place plain http is accepted, since nothing crosses a network. */
+export function isLoopback(base: string) {
+  try {
+    const { hostname } = new URL(base.trim())
+    return (
+      hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '127.0.0.1' || hostname === '[::1]'
+    )
+  } catch {
+    return false
+  }
+}
 /**
- * A model to use when the one selected is not on the list the key was given. Only Gemini is
- * guessed for: its names turn over every few months, and the alias or the newest plain Flash
- * is a safe stand-in. Anything else is the person's choice, so there is no answer.
+ * A model to use when the one selected is not on the list the key was given. Gemini is guessed
+ * for because its names turn over every few months: the alias or the newest plain Flash is a safe
+ * stand-in. A local server lists only what is installed, so its first chat model will do.
+ * Anything else is the person's choice, so there is no answer.
  */
 export function suggestModel(endpoint: string, list: string[]) {
+  if (isLoopback(endpoint)) return list.find((id) => !/embed|rerank/i.test(id))
   if (!endpoint.includes('generativelanguage.googleapis.com')) return undefined
   if (list.includes('gemini-flash-latest')) return 'gemini-flash-latest'
   return list
     .filter((id) => /^gemini-[\d.]+-flash$/.test(id))
     .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0]
 }
+/**
+ * Ollama on its own port. Its OpenAI-style /v1 route cannot be told how much of a prompt to keep, and a
+ * builder prompt is about 5,000 tokens against Ollama's default window of 4,096: the start of it, which
+ * holds every instruction, would be silently dropped. Its own /api/chat takes the window per request.
+ */
+export function isOllama(base: string) {
+  try {
+    return isLoopback(base) && new URL(base.trim()).port === '11434'
+  } catch {
+    return false
+  }
+}
+/** The smallest window, in powers of two from 4,096, that holds the prompt and the longest reply asked for. */
+export function contextWindow(messages: ChatMessage[], reply: number) {
+  // Code runs about three characters to a token, so this errs on the large side.
+  const needed = Math.ceil(messages.reduce((n, m) => n + m.content.length, 0) / 3) + reply
+  let window = 4096
+  while (window < needed && window < 65536) window *= 2
+  return window
+}
 export function endpointURL(base: string) {
   const url = new URL(base.trim())
-  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
-    throw new Error('Use an HTTPS API base URL without credentials, query parameters or a fragment')
+  const secure = url.protocol === 'https:' || (url.protocol === 'http:' && isLoopback(base))
+  if (!secure || url.username || url.password || url.search || url.hash)
+    throw new Error(
+      'Use an HTTPS API base URL (http only for localhost) without credentials, query parameters or a fragment'
+    )
   url.pathname = `${url.pathname.replace(/\/+$/, '')}/chat/completions`
   return url.href
 }
@@ -80,27 +146,49 @@ export async function completion(
   progress: (characters: number) => void = () => {},
   test = false
 ) {
-  const url = endpointURL(connection.endpoint)
-  if (!connection.key.trim()) throw new Error('Enter your API key in Connection')
+  const checked = endpointURL(connection.endpoint)
+  const local = isLoopback(connection.endpoint)
+  const native = isOllama(connection.endpoint)
+  const url = native ? new URL('/api/chat', checked).href : checked
+  if (!connection.key.trim() && !local) throw new Error('Enter your API key in Connection')
   if (!connection.model.trim()) throw new Error('Enter a model ID in Connection')
-  const timeout = AbortSignal.timeout(180_000)
+  // A model on this computer can take far longer than a hosted one to write a whole app.
+  const limit = local ? 20 * 60_000 : 180_000
+  const timeout = AbortSignal.timeout(limit)
   const combined = AbortSignal.any([signal, timeout])
   // OpenAI's newer models take only `max_completion_tokens`; everyone else still reads `max_tokens`.
   let param: 'max_tokens' | 'max_completion_tokens' =
     new URL(url).hostname === 'api.openai.com' ? 'max_completion_tokens' : 'max_tokens'
+  const reply = test ? 16 : 12000
   const send = () =>
     fetch(url, {
       method: 'POST',
       credentials: 'omit',
       redirect: 'error',
       referrerPolicy: 'no-referrer',
-      headers: { Authorization: `Bearer ${connection.key.trim()}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: connection.model.trim(),
-        messages,
-        stream: true,
-        [param]: test ? 16 : 12000
-      }),
+      headers: {
+        ...(connection.key.trim() ? { Authorization: `Bearer ${connection.key.trim()}` } : {}),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(
+        native
+          ? {
+              model: connection.model.trim(),
+              messages,
+              stream: true,
+              // Thinking first would spend minutes of a small card's time before the first line of code.
+              think: false,
+              options: { num_ctx: contextWindow(messages, reply), num_predict: reply }
+            }
+          : {
+              model: connection.model.trim(),
+              messages,
+              stream: true,
+              [param]: reply,
+              // Open WebUI hands this on to Ollama; other local servers ignore it.
+              ...(local ? { options: { num_ctx: contextWindow(messages, reply) } } : {})
+            }
+      ),
       signal: combined
     })
   let response: Response
@@ -117,8 +205,13 @@ export async function completion(
       }
     }
   } catch {
-    if (combined.aborted) throw new Error(signal.aborted ? 'Stopped' : 'Provider timed out after 3 minutes')
-    throw new Error('Cannot reach this endpoint. Check the URL, connection and provider browser CORS support.')
+    if (combined.aborted)
+      throw new Error(signal.aborted ? 'Stopped' : `Provider timed out after ${Math.round(limit / 60_000)} minutes`)
+    throw new Error(
+      local
+        ? 'Cannot reach the server on this computer. Check that it is running and published on that port, and that it allows this site (for Ollama, OLLAMA_ORIGINS).'
+        : 'Cannot reach this endpoint. Check the URL, connection and provider browser CORS support.'
+    )
   }
   if (!response.ok) {
     void response.body?.cancel().catch(() => {})
@@ -135,7 +228,7 @@ export async function completion(
   if (!response.body) throw new Error('Provider returned an empty response')
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
-  const streaming = response.headers.get('content-type')?.includes('text/event-stream')
+  const streaming = native || response.headers.get('content-type')?.includes('text/event-stream')
   let buffer = '',
     output = '',
     received = 0,
@@ -145,7 +238,17 @@ export async function completion(
       complete = true
       return
     }
-    const data = JSON.parse(json)
+    let data = JSON.parse(json)
+    // Ollama's own stream, one JSON object a line, is read as the OpenAI chunk it stands for.
+    if (native && !data.error)
+      data = {
+        choices: [
+          {
+            delta: { content: data.message?.content },
+            finish_reason: data.done ? (data.done_reason === 'length' ? 'length' : 'stop') : null
+          }
+        ]
+      }
     if (data.error) throw new Error('Provider reported a generation error')
     const choice = data.choices?.[0]
     // The connection test caps the reply at a few tokens, so stopping there is the expected end,
@@ -170,22 +273,26 @@ export async function completion(
       if (received > 2_000_000) throw new Error('Provider response exceeds the size limit')
       buffer += decoder.decode(value, { stream: true }).replace(/\r/g, '')
       if (streaming) {
-        let index = buffer.indexOf('\n\n')
+        const gap = native ? '\n' : '\n\n'
+        let index = buffer.indexOf(gap)
         while (index !== -1) {
           const event = buffer.slice(0, index)
-          buffer = buffer.slice(index + 2)
-          const data = event
-            .split('\n')
-            .filter((line) => line.startsWith('data:'))
-            .map((line) => line.slice(5).trimStart())
-            .join('\n')
+          buffer = buffer.slice(index + gap.length)
+          const data = native
+            ? event.trim()
+            : event
+                .split('\n')
+                .filter((line) => line.startsWith('data:'))
+                .map((line) => line.slice(5).trimStart())
+                .join('\n')
           if (data) consume(data)
-          index = buffer.indexOf('\n\n')
+          index = buffer.indexOf(gap)
         }
       }
     }
     buffer += decoder.decode()
-    if (!streaming) consume(buffer)
+    if (native && buffer.trim()) consume(buffer.trim())
+    else if (!streaming) consume(buffer)
     // A model that reasons first can spend the whole test cap before saying anything; it answered, which is the test.
     if (!complete || (!test && !output.trim())) throw new Error('Provider stream ended before a complete response')
     return output

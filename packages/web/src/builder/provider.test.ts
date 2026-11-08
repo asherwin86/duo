@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test'
 import { example } from './example'
-import { completion, endpointURL, suggestModel } from './provider'
+import { completion, contextWindow, endpointURL, isLoopback, isOllama, PROVIDERS, suggestModel } from './provider'
 import { parseResponse, parseSource } from './types'
 
 const original = globalThis.fetch
@@ -115,6 +115,91 @@ test('endpoint credentials, fragments, queries and insecure transport are refuse
   ])
     expect(() => endpointURL(url)).toThrow()
 })
+test('plain http is accepted for a server on this computer and nowhere else', () => {
+  expect(endpointURL('http://localhost:11434/v1')).toBe('http://localhost:11434/v1/chat/completions')
+  expect(endpointURL('http://127.0.0.1:3000/api/')).toBe('http://127.0.0.1:3000/api/chat/completions')
+  expect(endpointURL('http://[::1]:11434/v1')).toBe('http://[::1]:11434/v1/chat/completions')
+  expect(isLoopback('http://localhost.evil.example/v1')).toBe(false)
+  expect(isLoopback('http://127.0.0.1.evil.example/v1')).toBe(false)
+  expect(isLoopback('http://192.168.1.20:11434/v1')).toBe(false)
+  expect(() => endpointURL('http://192.168.1.20:11434/v1')).toThrow()
+  expect(() => endpointURL('http://user:pass@localhost/v1')).toThrow()
+})
+test('a local server needs no key, and no Authorization header is sent without one', async () => {
+  let headers: Headers | undefined
+  globalThis.fetch = (async (_url, options) => {
+    headers = new Headers(options?.headers)
+    return response(['data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":"stop"}]}\n\n', 'data: [DONE]\n\n'])
+  }) as typeof fetch
+  const local = { endpoint: 'http://localhost:8080/v1', model: 'some-model', key: '' }
+  expect(await completion(local, messages, new AbortController().signal)).toBe('Hi')
+  expect(headers?.has('Authorization')).toBe(false)
+  // A hosted provider without a key is still refused before any request is made.
+  await expect(completion({ ...connection, key: '' }, messages, new AbortController().signal)).rejects.toThrow(
+    'API key'
+  )
+})
+test('Ollama is asked through /api/chat with a window big enough for the prompt, and its stream is read', async () => {
+  let seen: { url: string; body: Record<string, unknown> } | undefined
+  globalThis.fetch = (async (url, options) => {
+    seen = { url: String(url), body: JSON.parse(String(options?.body)) }
+    // A line split across two chunks, as a real network delivers it.
+    return response(
+      [
+        '{"message":{"role":"assistant","content":"He"},"done":false}\n{"message":{"role":"assis',
+        'tant","content":"llo"},"done":false}\n',
+        '{"message":{"role":"assistant","content":""},"done":true,"done_reason":"stop"}\n'
+      ],
+      'application/x-ndjson'
+    )
+  }) as typeof fetch
+  const ollama = { endpoint: 'http://localhost:11434/v1', model: 'mistral:latest', key: '' }
+  const big = [{ role: 'user' as const, content: 'x'.repeat(40_000) }]
+  expect(await completion(ollama, big, new AbortController().signal)).toBe('Hello')
+  expect(seen?.url).toBe('http://localhost:11434/api/chat')
+  expect(seen?.body.think).toBe(false)
+  const options = seen?.body.options as { num_ctx: number; num_predict: number }
+  expect(options.num_predict).toBe(12000)
+  // 40,000 characters is about 13,400 tokens, and the reply needs 12,000 more.
+  expect(options.num_ctx).toBe(32768)
+  expect(seen?.body).not.toHaveProperty('max_tokens')
+})
+test('an Ollama reply cut off by its token limit is refused, an error line is reported', async () => {
+  const ollama = { endpoint: 'http://localhost:11434/v1', model: 'm', key: '' }
+  globalThis.fetch = (async () =>
+    response(
+      ['{"message":{"content":"part"},"done":true,"done_reason":"length"}\n'],
+      'application/x-ndjson'
+    )) as typeof fetch
+  await expect(completion(ollama, messages, new AbortController().signal)).rejects.toThrow('truncated')
+  globalThis.fetch = (async () =>
+    response(['{"error":"model requires more memory"}\n'], 'application/x-ndjson')) as typeof fetch
+  await expect(completion(ollama, messages, new AbortController().signal)).rejects.toThrow('generation error')
+})
+test('the context window is the smallest power of two that holds prompt and reply', () => {
+  const text = (n: number) => [{ role: 'user' as const, content: 'x'.repeat(n) }]
+  expect(contextWindow(text(100), 16)).toBe(4096)
+  expect(contextWindow(text(15_000), 12000)).toBe(32768)
+  expect(contextWindow(text(10_000_000), 12000)).toBe(65536)
+  expect(isOllama('http://localhost:11434/v1')).toBe(true)
+  expect(isOllama('http://localhost:3000/api')).toBe(false)
+  expect(isOllama('https://example.com:11434/v1')).toBe(false)
+})
+test('a local server that is down says what to check', async () => {
+  globalThis.fetch = (async () => {
+    throw new TypeError('fetch failed')
+  }) as typeof fetch
+  await expect(
+    completion({ endpoint: 'http://localhost:11434/v1', model: 'm', key: '' }, messages, new AbortController().signal)
+  ).rejects.toThrow('server on this computer')
+})
+test('a local server falls back to its first chat model, skipping embedding models', () => {
+  expect(suggestModel('http://localhost:11434/v1', ['nomic-embed-text:latest', 'mistral:latest', 'qwen3.5:9b'])).toBe(
+    'mistral:latest'
+  )
+  expect(suggestModel('http://localhost:11434/v1', ['nomic-embed-text:latest'])).toBeUndefined()
+  expect(suggestModel('http://localhost:11434/v1', [])).toBeUndefined()
+})
 test('source schema rejects traversal, executable HTML and oversized projects', () => {
   expect(parseResponse(`\`\`\`json\n${JSON.stringify(example)}\n\`\`\``).name).toBe('Focus')
   for (const files of [
@@ -123,4 +208,8 @@ test('source schema rejects traversal, executable HTML and oversized projects', 
     { 'app.tsx': 'x'.repeat(180_001) }
   ])
     expect(() => parseSource({ ...example, files })).toThrow()
+})
+test('a new visitor starts on a hosted provider, never on a local one', () => {
+  expect(PROVIDERS[0]?.local).toBeUndefined()
+  expect(PROVIDERS.filter((p) => p.local).map((p) => p.id)).toEqual(['ollama', 'open-webui'])
 })

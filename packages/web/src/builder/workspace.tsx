@@ -7,7 +7,7 @@ import { compile } from './compiler'
 import { PreviewClient } from './preview-client'
 import { downloadProject, listProjects, newProject, saveProject } from './projects'
 import { prompt } from './prompt'
-import { type Connection, completion, models, PROVIDERS, suggestModel } from './provider'
+import { type Connection, completion, isLoopback, models, PROVIDERS, suggestModel } from './provider'
 import { type Project, parseResponse, type Source } from './types'
 
 const SUGGESTIONS = ['Make me a timer app', 'Build a simple notes app', 'Make a daily habit counter']
@@ -196,14 +196,18 @@ export function Workspace({
         .then((list) => {
           setModelList(list)
           const chosen = connectionRef.current.model.trim()
-          if (list.length && chosen && !list.includes(chosen)) {
+          // A local server has no default model: whatever is installed is the only answer, so an empty choice
+          // takes the first one.
+          if (list.length && (chosen ? !list.includes(chosen) : isLoopback(endpoint))) {
             // The key's own list is the truth about what it can call; the saved or default name may be retired.
             const pick = suggestModel(endpoint, list)
             if (pick) updateConnection({ ...connectionRef.current, model: pick })
             setModelNote(
-              pick
-                ? `${chosen} is not offered to this key; using ${pick}.`
-                : `${chosen} is not in this key's ${list.length} models. Pick one from the list.`
+              !chosen
+                ? `${list.length} models installed. Using ${pick ?? list[0]}.`
+                : pick
+                  ? `${chosen} is not offered to this key; using ${pick}.`
+                  : `${chosen} is not in this key's ${list.length} models. Pick one from the list.`
             )
             return
           }
@@ -214,7 +218,11 @@ export function Workspace({
         .catch(() => {
           if (control.signal.aborted) return
           setModelList([])
-          setModelNote(key.trim() ? 'Could not list models. Type an ID.' : 'Add a key to list models, or type an ID.')
+          setModelNote(
+            key.trim() || isLoopback(endpoint)
+              ? 'Could not list models. Is the server running? Type an ID.'
+              : 'Add a key to list models, or type an ID.'
+          )
         })
     }, 500)
     return () => {
@@ -238,10 +246,14 @@ export function Workspace({
   }
   async function run(message = text) {
     if (!project || !client || busy || !message.trim()) return
-    if (!connection.key.trim() || !connection.model.trim()) {
+    if ((!connection.key.trim() && !isLoopback(connection.endpoint)) || !connection.model.trim()) {
       setSettings(true)
       setText(message)
-      setError('Enter your API key and model to start building.')
+      setError(
+        isLoopback(connection.endpoint)
+          ? 'Pick a model to start building.'
+          : 'Enter your API key and model to start building.'
+      )
       return
     }
     const control = new AbortController()
@@ -347,7 +359,8 @@ export function Workspace({
   }
   const source = project?.revisions[project.current]?.source
   const provider = custom ? undefined : PROVIDERS.find((p) => p.endpoint === connection.endpoint)
-  const connected = Boolean(connection.key.trim() && connection.model.trim())
+  const local = isLoopback(connection.endpoint)
+  const connected = Boolean((connection.key.trim() || local) && connection.model.trim())
   const working = busy && stage !== 'Ready'
   return (
     <section {...stylex.props(styles.workspace)} data-builder data-lenis-prevent>
@@ -515,7 +528,9 @@ export function Workspace({
                     <div>
                       <div {...stylex.props(styles.settingsTitle)}>Connection</div>
                       <div {...stylex.props(styles.hint)}>
-                        Your key stays in this tab and goes only to the provider.
+                        {local
+                          ? 'Requests go straight from this tab to the server on your computer.'
+                          : 'Your key stays in this tab and goes only to the provider.'}
                       </div>
                     </div>
                     <div {...stylex.props(styles.spacer)} />
@@ -548,7 +563,7 @@ export function Workspace({
                     <div {...stylex.props(styles.field)}>
                       <span {...stylex.props(styles.fieldRow)}>
                         <label htmlFor="builder-key">API key</label>
-                        {provider && (
+                        {provider && !provider.local && (
                           <a href={provider.keys} target="_blank" rel="noreferrer" {...stylex.props(styles.link)}>
                             Get a key ↗
                           </a>
@@ -559,7 +574,9 @@ export function Workspace({
                         type="password"
                         autoComplete="off"
                         data-private
-                        placeholder={provider ? `${provider.name} key` : 'Bearer token'}
+                        placeholder={
+                          provider?.keyHint ?? (local ? 'Optional' : provider ? `${provider.name} key` : 'Bearer token')
+                        }
                         value={connection.key}
                         disabled={busy}
                         onChange={(e) => setConnection({ ...connection, key: e.target.value })}
@@ -620,7 +637,9 @@ export function Workspace({
                       Clear key
                     </button>
                     <span {...stylex.props(styles.hint)}>
-                      Test sends one tiny paid request. Custom endpoints must allow browser access.
+                      {local
+                        ? 'Runs on this computer, so nothing is billed and no key leaves it. Use Chrome, Edge or Firefox.'
+                        : 'Test sends one tiny paid request. Custom endpoints must allow browser access.'}
                     </span>
                   </div>
                 </div>

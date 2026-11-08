@@ -17,6 +17,33 @@ OpenRouter, OpenAI, Google Gemini and Groq presets plus a custom base URL; while
 it fetches the endpoint's `/models` list (with the key when one is entered) to fill a
 datalist for the model field. Manual model entry still works when that list is unavailable.
 
+### Models on this computer
+
+Two further presets, listed after the hosted ones so a new visitor never starts on them, talk
+to a server on the person's own machine: Ollama (`http://localhost:11434/v1`) and Open WebUI
+(`http://localhost:3000/api`, whose OpenAI-compatible route needs a key from Settings, Account,
+API keys). Plain `http` is accepted only for loopback hosts (`localhost`, `*.localhost`,
+`127.0.0.1`, `[::1]`); everything else still has to be HTTPS. A loopback endpoint needs no key,
+sends no `Authorization` header when none is entered, waits 20 minutes instead of 3, and when
+its saved model is missing from the server's list takes the first installed chat model.
+
+Ollama on port 11434 is called through its own `/api/chat`, not `/v1`, because only that route
+accepts `options.num_ctx`. A builder prompt is about 5,000 tokens against Ollama's default
+window of 4,096: through `/v1` the start of it, which holds every instruction, is silently
+dropped (the server log says `truncating input prompt`) and the model answers the source as
+a chat message instead of returning the JSON. The window is sized per request to the prompt plus
+the reply cap, up to 65,536, and `think: false` keeps reasoning models from spending minutes
+before the first line of code. Open WebUI is sent the same `options.num_ctx` as a hint, but
+whether it reaches Ollama depends on its version; the Ollama preset is the dependable path.
+
+Browsers allow a page to reach `localhost` over http from an HTTPS origin in Chrome, Edge and
+Firefox, which may ask for local-network permission; Safari blocks it. Ollama must accept the
+site's origin (`OLLAMA_ORIGINS`; recent builds reflect any origin). A 9 billion parameter model on
+a card with 8 GB of memory spends about half of a 32,768 window on the CPU: expect two minutes
+for a first revision, and a smaller model that echoes the current source back instead of
+changing it. Verified once in Chromium against Ollama 0.21.2 with Mistral 7B and Qwen 3.5 9B;
+that is not a statement about other models or servers.
+
 Keys exist only in React memory and provider authorization headers. They never enter
 prompts, workers, simulator messages, saved projects or downloads. Provider errors use
 status-based messages instead of displaying response bodies. Never enable session replay

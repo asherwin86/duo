@@ -1976,3 +1976,14 @@ it to the cover app iframe element's raster - an association that does not by
 itself separate a raster, compositor or capture-pipeline defect. It is named
 here only so the two are not conflated; this cull is not asserted as its
 repair.
+
+## 113. The builder can use a model on the person's own computer
+
+2026-11-08, accepted. Decision 65's rule that a provider endpoint is HTTPS stays for every
+host except loopback, where plain `http` is accepted because nothing crosses a network.
+Ollama and Open WebUI are presets after the hosted ones (a visitor's first provider stays
+hosted, so no page opens a connection to its visitor's own port 11434 unasked). A loopback
+endpoint takes no key. Ollama's port is called through `/api/chat` with a context window sized
+to the request, since its OpenAI-style route cannot set one and the default 4,096 tokens silently
+drops the front of a builder prompt, instructions included. See
+[builder](platform/builder.md#models-on-this-computer).
