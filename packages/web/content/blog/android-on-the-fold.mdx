@@ -1,0 +1,64 @@
+export const meta = {
+  title: 'Android on the fold: run APKs and the Play Store on the phone',
+  lead: 'A browser tab cannot run Android, so the dev server runs Google’s emulator and streams its screen to an app on the phone. Touch, typing and the Play Store come along.',
+  date: '2026-11-08',
+  author: 'asherwin86',
+  poster: '/blog/android-on-the-fold.jpg'
+}
+
+Duo is a web page, and a web page cannot run Android. So it does not try. The dev server starts Google's Android Emulator beside itself and streams the screen to a new Android app in Utilities. It is a real Android 14 phone, which also runs ARM apps, and it shows on both displays at once.
+
+## The screen is a video
+
+The emulator draws on the computer, and `screenrecord` turns that into an H.264 stream. The server sends it over a WebSocket and the page decodes it with WebCodecs into every canvas that wants it:
+
+- One connection serves the cover and the inner display, so they show the same Android and a fold never restarts it.
+- A game that turns sideways changes the screen's shape. The page follows the rotation and keeps the picture's own proportions inside the canvas, with touch mapped past the letterbox.
+- A still screen sends nothing, so a canvas that joins late asks for a fresh start of the stream.
+
+## Touch, and a keyboard
+
+Taps, swipes and keys become `adb input` calls. A swipe is sent when you let go, not as a live drag, and that is the part that feels least like a phone.
+
+Typing took the most care, because signing in to anything needs it. Click the Android screen and it takes keyboard focus: letters, Enter, Backspace, Tab and the arrows go to Android, and a paste is typed in. Two things nearly went wrong:
+
+- Typing the letter `l` locked the phone. The phone's own shortcuts treat `L` as the side button and the arrows as volume. Key events now stop at the canvas.
+- A backslash arrived as `(`. The device's shell reads a backslash followed by digits as an octal escape. Text is quoted for the shell with spaces as `%s`, and a backslash is sent as its own key press.
+
+```ts
+// A quote, $, &, ; or % arrives as written. Only a backslash needs a key of its own.
+textSteps("it's $5 & 50\\50")
+```
+
+The server never logs what is typed. It may be a password.
+
+## Run an APK
+
+Put an APK in the [storage folder](/blog/downloads-and-a-storage-folder), open it in Files and choose Run in Android. The server reads the package name, installs the file with `adb install` and starts it. The Android app also lists the APKs in Downloads, newest first.
+
+## The Play Store
+
+With Google's Play image installed, Android has the Play Store. It runs as a virtual phone of its own, with 3 GB of memory and 12 GB for data, so an earlier phone made from the plain image and everything on it stay as they were.
+
+You sign in yourself, with your own account. Duo never types a password for you. We tested up to the Play sign-in screen and the typing path. We did not install an app from Play.
+
+## Set it up
+
+Install the Android SDK command-line tools once, then:
+
+```sh
+sdkmanager "platform-tools" "emulator" "build-tools/37.0.0" "system-images/android-34/google_apis_playstore/x86_64"
+```
+
+The emulator needs hardware virtualization: the Windows Hypervisor Platform or Hyper-V on Windows, KVM on Linux, Hypervisor.framework on macOS. If it will not start on your graphics card, `DUO_ANDROID_GPU=swiftshader_indirect` switches to software rendering.
+
+## What it is not
+
+- **Dev server only.** The emulator is a program on your computer. A built or deployed site has none, and the Android app says so rather than pretending.
+- **No sound.** The emulator runs with `-no-audio`.
+- **No IPA.** An iPhone package cannot run here.
+- **Disk.** The SDK and each virtual phone take several gigabytes.
+
+The emulator starts programs, so the server answers only for this machine's own address, and a WebSocket or a POST has to come from the same origin as the page. A WebSocket skips the browser's cross-origin check, which is why that is checked by hand.
+
+The code is in `scripts/android-emulator.ts` and `packages/apps/android/`.

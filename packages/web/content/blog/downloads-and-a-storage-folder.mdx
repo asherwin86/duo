@@ -1,0 +1,49 @@
+export const meta = {
+  title: 'Downloads that land in a folder on your computer',
+  lead: 'Safari keeps APK and IPA files instead of showing them, Files lists them, and the phone gets a real storage folder you can drop files into.',
+  date: '2026-11-08',
+  author: 'asherwin86',
+  poster: '/blog/downloads-and-a-storage-folder.jpg'
+}
+
+A phone that cannot receive a file is half a phone. Duo had Safari and it had Files, and nothing connected them. Now a download goes somewhere you can see, and a folder on your computer is that somewhere.
+
+## Safari keeps package files
+
+An address that ends in `.apk`, `.apks`, `.xapk`, `.aab`, `.ipa` or `.ipk` is not a page. Safari now fetches it, saves a copy in the phone's Downloads, hands your computer a copy through the browser, and shows a notice above the bar with progress and the result.
+
+A site that does not let a page read its file still downloads, to the computer only, through a hidden frame. The phone does not pretend: Files says no app on it can open these packages. Running an APK is what [the Android app](/blog/android-on-the-fold) is for. An IPA cannot run anywhere in Duo.
+
+## Files shows what is there
+
+Files lists the saved files under On My iPhone, then Downloads, live. Each has its size and kind, Save to Computer and Delete. Nothing is listed that was not saved, in the spirit of the rest of the OS: a row is real, or it is not there.
+
+The files live in a store of their own, shared by the apps that ship with Duo. It has limits of its own, 512 MiB a file, 1 GiB in all and 64 files, so the 32 MiB blob limit in the app contract is untouched.
+
+## The storage folder
+
+A browser page cannot open a folder in every browser, and Firefox has no way to at all, so the dev server owns it. It keeps `storage/Downloads`, and the phone's Downloads is that folder:
+
+```sh
+# A file put here shows up in Files, then On My iPhone, then Downloads.
+cp app.apk storage/Downloads/
+```
+
+The folder is git-ignored, and `DUO_STORAGE` moves it. The server only answers for this machine's own address, accepts names a folder can safely hold, caps a file at 512 MB and writes through a temporary name so a half-written file is never listed. A built site has no server, so Downloads stays in the browser's own storage as before.
+
+## No window to ask where
+
+Settings, General, Duo Storage shows the folder and a Save Downloads Automatically switch, on by default.
+
+- **On:** the server fetches the file straight into the folder. There is no browser save window, and it reaches sites that do not let a page read their files.
+- **Off:** Safari asks the browser to save the file, and keeps a copy in the folder.
+
+The switch is its own setting, not a device switch, so the app contract did not change.
+
+## Try it
+
+```sh
+bun run dev
+```
+
+Open Safari and go to an APK address, or drop a file into `storage/Downloads`. The code is in `scripts/storage-folder.ts`, `packages/shell/runtime/files.ts` and `packages/apps/files/`.

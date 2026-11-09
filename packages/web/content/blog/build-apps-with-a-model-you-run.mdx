@@ -1,0 +1,56 @@
+export const meta = {
+  title: 'Build an app by chatting, with a model you run yourself',
+  lead: 'The builder is on: describe an app, and a model writes it, compiles it in your browser and runs it on the phone. Bring a key, or point it at Ollama on your own computer.',
+  date: '2026-11-09',
+  author: 'asherwin86',
+  poster: '/blog/build-apps-with-a-model-you-run.jpg'
+}
+
+The builder was written and parked. It is now on at [/build](/build): a chat beside the real simulator. You describe an app, a model you connect writes it, it compiles in your browser, and it runs on the phone as a new revision you can undo.
+
+## Your key goes to your provider
+
+There is no Duo server in the path. The page calls the provider's chat endpoint straight from your browser, and the key lives in memory in that tab. It never enters a prompt, a saved project or a download. OpenRouter, OpenAI, Google Gemini and Groq are presets, and any OpenAI-compatible HTTPS endpoint works as a custom one.
+
+Getting real providers to work took a few fixes, each from a real error:
+
+- **The connection test said the response was truncated.** The test asks for a handful of tokens, so stopping at the cap is the expected end. It no longer counts as a cut-off app.
+- **OpenAI answered 400.** Its newer models take `max_completion_tokens` and reject `max_tokens`. The builder sends the right one, and retries once with the other when the error names it.
+- **Gemini answered 404.** Its model names turn over every few months. The preset uses the `gemini-flash-latest` alias, and when the key's own model list does not offer the chosen model the builder switches to one it does.
+- **The app opened on every page load.** A saved project is now put on the home screen as a tile and opens only when you ask for a change.
+
+## A model on your own computer
+
+Ollama and Open WebUI are in the Connection list as "this computer". Plain `http` is accepted for `localhost` and nowhere else, there is no key to enter, and the list of installed models fills in by itself.
+
+The first run did something odd: the model ignored every instruction and described the sample app instead of building one. The cause was in the server's log:
+
+```text
+truncating input prompt limit=4096 prompt=4894 keep=5 new=4096
+```
+
+Ollama's default window is 4,096 tokens and a builder prompt is about 5,000. The part it drops is the front, which holds all the instructions, and it answers anyway. Its OpenAI-style route cannot be told to keep more, but its own `/api/chat` takes the window per request, so Ollama is called through that, with a window sized to the prompt.
+
+## It stops when the model says it is done
+
+A hosted request costs money per token, so it has a token cap, a three-minute timeout and one repair. None of that applies to a model on your own machine, where the only cost is time. So there:
+
+- **No cap and no timeout.** The reply ends when the model ends it. The Stop button is the only other way.
+- **A cut-off reply is carried on.** When the server stops at the edge of its memory, the part so far goes back as the start of the model's own turn and it picks up from there.
+- **Repair until it builds.** A reply that fails to compile or to match the schema is sent back with the diagnostic, with the attempt number on screen, again and again.
+
+Three things still end it, because going on would loop or quietly corrupt the answer: a round that was cut off yet said nothing, a prompt of more than about 60,000 tokens (the server would drop the instructions again), and a reply that has grown past half of that. The schema's own limit of 180 KB for the whole source is unchanged, so a very long file is repaired until it is smaller than that.
+
+## What it costs, and what we tried
+
+On a card with 8 GB of memory, a nine-billion-parameter model spends about half of its window on the CPU, and a first revision takes about two minutes. In one test, Mistral 7B returned the sample app unchanged, and Qwen 3.5 9B returned a valid tip calculator for the same request. That is one machine and two models, not a ranking.
+
+Open WebUI is in the list, and it needs a key from its own settings and a port that your browser can reach. We tested Ollama and have not tested Open WebUI. Safari does not allow a page to reach `localhost` over `http`, so use Chrome, Edge or Firefox.
+
+## Try it
+
+```sh
+ollama pull qwen3.5
+```
+
+Open [/build](/build), choose Connection, then Ollama (this computer). The notes on credentials, requests and limits are in `docs/platform/builder.md` in the repository.

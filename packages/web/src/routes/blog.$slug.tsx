@@ -100,6 +100,14 @@ function Page() {
             <div {...stylex.props(styles.bylines)}>
               {[p.author].flat().map((name) => {
                 const id = name.toLowerCase().replace(/\s+/g, '-')
+                // A portrait and a profile exist only for the people at Doan Labs. Anyone else, such as a
+                // contributor, gets a plain name: no link to a page that is not theirs, no studio credit.
+                if (!DOAN_LABS.has(id))
+                  return (
+                    <p key={name} {...stylex.props(styles.byline)}>
+                      <span {...stylex.props(styles.author, styles.plain)}>{name}</span>
+                    </p>
+                  )
                 return (
                   <p key={name} {...stylex.props(styles.byline)}>
                     {/* The portrait doan-labs.com prints, copied into public/people/. */}
@@ -179,6 +187,8 @@ function Progress() {
 }
 
 const SMALL = '@media (max-width: 734px)'
+/** The authors who have a portrait in public/people/ and a profile at doan-labs.com. */
+const DOAN_LABS = new Set(['thanh-doan', 'linh-doan'])
 
 const styles = stylex.create({
   progress: {
@@ -277,6 +287,7 @@ const styles = stylex.create({
     transitionProperty: 'color',
     transitionDuration: '0.2s'
   },
+  plain: { color: color.text },
   studio: {
     display: 'flex',
     alignItems: 'center',

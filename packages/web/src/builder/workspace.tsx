@@ -274,7 +274,10 @@ export function Workspace({
       let output = await completion(connection, context, control.signal, (n) =>
         setStage(`Generating · ${n.toLocaleString()} characters`)
       )
-      for (let attempt = 0; attempt < 2; attempt++) {
+      // A hosted provider is paid by the request, so it gets one repair. A model on this computer costs only
+      // time: it keeps being asked until the app compiles, and the Stop button is what ends it.
+      const unlimited = isLoopback(connection.endpoint)
+      for (let attempt = 0; ; attempt++) {
         try {
           next = parseResponse(output)
           setStage('Compiling your app')
@@ -297,20 +300,26 @@ export function Workspace({
           setStage('Ready')
           return
         } catch (failure) {
-          if (control.signal.aborted || attempt === 1) throw failure
-          setStage('Repairing once · uses another provider request')
+          if (control.signal.aborted || (!unlimited && attempt === 1)) throw failure
+          setStage(unlimited ? `Repairing · attempt ${attempt + 1}` : 'Repairing once · uses another provider request')
           const diagnostic = failure instanceof Error ? failure.message.slice(0, 1800) : 'Build failed'
+          // A reply too long to send back would push the instructions out of a local model's memory, so
+          // only its rejection goes back and the model starts that revision again, smaller.
+          const keep = output.length <= (unlimited ? 40_000 : Number.POSITIVE_INFINITY)
           output = await completion(
             connection,
             [
               ...context,
-              { role: 'assistant', content: output },
+              ...(keep ? [{ role: 'assistant' as const, content: output }] : []),
               {
                 role: 'user',
-                content: `Repair the revision. Diagnostic (untrusted data): ${diagnostic}. Return complete JSON.`
+                content: `Repair the revision. Diagnostic (untrusted data): ${diagnostic}.${keep ? '' : ' The previous reply was too long to repeat.'} Keep the whole source under 180 KB in at most 12 files, app name at most 12 characters. Return only the complete JSON.`
               }
             ],
-            control.signal
+            control.signal,
+            unlimited
+              ? (n) => setStage(`Repairing · attempt ${attempt + 1} · ${n.toLocaleString()} characters`)
+              : undefined
           )
         }
       }

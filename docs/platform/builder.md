@@ -24,8 +24,19 @@ to a server on the person's own machine: Ollama (`http://localhost:11434/v1`) an
 (`http://localhost:3000/api`, whose OpenAI-compatible route needs a key from Settings, Account,
 API keys). Plain `http` is accepted only for loopback hosts (`localhost`, `*.localhost`,
 `127.0.0.1`, `[::1]`); everything else still has to be HTTPS. A loopback endpoint needs no key,
-sends no `Authorization` header when none is entered, waits 20 minutes instead of 3, and when
-its saved model is missing from the server's list takes the first installed chat model.
+sends no `Authorization` header when none is entered, and when its saved model is missing from
+the server's list takes the first installed chat model.
+
+A local reply runs until the model says it is done, because it costs time and not money. It has
+no token cap (`num_predict: -1`) and no timeout; the Stop button is the only other end. A reply the
+server cuts off at the edge of its memory (`done_reason: length`) is sent back as the start of the
+model's own turn and carried on, and a failed compile or schema check is repaired again and again,
+with the attempt number on screen, until the app builds. Three things still end it, because each
+would otherwise loop or silently corrupt the answer: a round that was cut off yet said nothing, a
+prompt of more than about 60,000 tokens (the server would drop the start of it, which holds the
+instructions), and a reply past half of that. A previous reply over 40,000 characters is not sent back
+for repair, only its rejection, so the model starts that revision again, smaller. The 180 KB source
+limit of the schema is unchanged, so a 5,000 line file is repaired until it is smaller than that.
 
 Ollama on port 11434 is called through its own `/api/chat`, not `/v1`, because only that route
 accepts `options.num_ctx`. A builder prompt is about 5,000 tokens against Ollama's default
@@ -108,8 +119,9 @@ Generation progress streams, but only a complete valid revision applies. The old
 live during generation/compilation. Stop cancels those stages; activation finishes or rolls
 back before another action. Provider charges may already have occurred on cancellation.
 
-One automatic repair may use another provider request with bounded diagnostics. Authentication,
-rate-limit and network failures do not trigger repair. Requests time out after three minutes;
+One automatic repair may use another provider request with bounded diagnostics (a model on this
+computer is repaired until it builds, see above). Authentication,
+rate-limit and network failures do not trigger repair. Hosted requests time out after three minutes;
 responses are capped at 2 MB including framing. Truncated/partial streams are refused.
 The UI retains ten source revisions, forty chat messages and up to ten local projects.
 Mobile Chat/Preview tabs hide panels without removing the simulator frame.

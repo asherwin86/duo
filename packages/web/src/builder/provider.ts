@@ -139,6 +139,14 @@ export function endpointURL(base: string) {
   url.pathname = `${url.pathname.replace(/\/+$/, '')}/chat/completions`
   return url.href
 }
+/** The most a local model's memory can hold of prompt and reply together, in characters at about three to a token. */
+export const LOCAL_MEMORY = 60_000 * 3
+/**
+ * A reply from a model on this computer runs until the model says it is done. It is not capped, nothing times
+ * it out (the Stop button is the only other end), and a reply the server cut off at the edge of its memory is
+ * carried on from where it stopped, since the cost is only time. A hosted provider is paid by the token, so
+ * its reply keeps the cap and the timeout.
+ */
 export async function completion(
   connection: Connection,
   messages: ChatMessage[],
@@ -146,20 +154,46 @@ export async function completion(
   progress: (characters: number) => void = () => {},
   test = false
 ) {
+  if (test || !isLoopback(connection.endpoint))
+    return (await request(connection, messages, signal, progress, test)).text
+  let output = ''
+  while (true) {
+    // The part so far goes back as the start of the model's own answer, so it picks up mid-sentence.
+    const round = output ? [...messages, { role: 'assistant' as const, content: output }] : messages
+    const part = await request(connection, round, signal, (n) => progress(output.length + n), test)
+    // A round that was cut off yet added nothing would be asked again forever.
+    if (part.cut && !part.text) throw new Error('The model stopped without finishing. Try again or pick another model.')
+    output += part.text
+    if (!part.cut) return output
+    if (output.length > LOCAL_MEMORY / 2)
+      throw new Error('The reply is longer than the model can keep in memory. Ask for a smaller app.')
+  }
+}
+async function request(
+  connection: Connection,
+  messages: ChatMessage[],
+  signal: AbortSignal,
+  progress: (characters: number) => void,
+  test: boolean
+) {
   const checked = endpointURL(connection.endpoint)
   const local = isLoopback(connection.endpoint)
   const native = isOllama(connection.endpoint)
   const url = native ? new URL('/api/chat', checked).href : checked
   if (!connection.key.trim() && !local) throw new Error('Enter your API key in Connection')
   if (!connection.model.trim()) throw new Error('Enter a model ID in Connection')
-  // A model on this computer can take far longer than a hosted one to write a whole app.
-  const limit = local ? 20 * 60_000 : 180_000
-  const timeout = AbortSignal.timeout(limit)
-  const combined = AbortSignal.any([signal, timeout])
+  // Past this the server drops the start of the prompt, which holds the instructions, and answers anyway.
+  if (local && messages.reduce((n, m) => n + m.content.length, 0) > LOCAL_MEMORY)
+    throw new Error('This is more than the model can keep in memory at once. Start a new app or ask for less.')
+  // Only a hosted provider is cut off by time: a model on this computer can take as long as it needs.
+  const limit = 180_000
+  const combined = local ? signal : AbortSignal.any([signal, AbortSignal.timeout(limit)])
   // OpenAI's newer models take only `max_completion_tokens`; everyone else still reads `max_tokens`.
   let param: 'max_tokens' | 'max_completion_tokens' =
     new URL(url).hostname === 'api.openai.com' ? 'max_completion_tokens' : 'max_tokens'
+  // What the window is sized for, and the cap sent. A local reply is open-ended: it ends when the model does.
   const reply = test ? 16 : 12000
+  const open = local && !test
   const send = () =>
     fetch(url, {
       method: 'POST',
@@ -178,13 +212,13 @@ export async function completion(
               stream: true,
               // Thinking first would spend minutes of a small card's time before the first line of code.
               think: false,
-              options: { num_ctx: contextWindow(messages, reply), num_predict: reply }
+              options: { num_ctx: contextWindow(messages, reply), num_predict: open ? -1 : reply }
             }
           : {
               model: connection.model.trim(),
               messages,
               stream: true,
-              [param]: reply,
+              ...(open ? {} : { [param]: reply }),
               // Open WebUI hands this on to Ollama; other local servers ignore it.
               ...(local ? { options: { num_ctx: contextWindow(messages, reply) } } : {})
             }
@@ -207,6 +241,7 @@ export async function completion(
   } catch {
     if (combined.aborted)
       throw new Error(signal.aborted ? 'Stopped' : `Provider timed out after ${Math.round(limit / 60_000)} minutes`)
+    // A server that dropped the stream partway is not the same as one that never answered.
     throw new Error(
       local
         ? 'Cannot reach the server on this computer. Check that it is running and published on that port, and that it allows this site (for Ollama, OLLAMA_ORIGINS).'
@@ -232,7 +267,8 @@ export async function completion(
   let buffer = '',
     output = '',
     received = 0,
-    complete = false
+    complete = false,
+    cut = false
   function consume(json: string) {
     if (json === '[DONE]') {
       complete = true
@@ -254,7 +290,9 @@ export async function completion(
     // The connection test caps the reply at a few tokens, so stopping there is the expected end,
     // not a cut-off app. A generated revision that hits the cap is still refused.
     if (choice?.finish_reason === 'length') {
-      if (!test) throw new Error('Response was truncated. Ask for a smaller app.')
+      if (!test && !open) throw new Error('Response was truncated. Ask for a smaller app.')
+      // An open-ended local reply that was cut off is not finished: `completion` carries it on.
+      cut = open
       complete = true
     }
     if (choice?.finish_reason === 'content_filter') throw new Error('Provider declined this request')
@@ -294,8 +332,9 @@ export async function completion(
     if (native && buffer.trim()) consume(buffer.trim())
     else if (!streaming) consume(buffer)
     // A model that reasons first can spend the whole test cap before saying anything; it answered, which is the test.
-    if (!complete || (!test && !output.trim())) throw new Error('Provider stream ended before a complete response')
-    return output
+    if (!complete || (!test && !output.trim() && !cut))
+      throw new Error('Provider stream ended before a complete response')
+    return { text: output, cut }
   } finally {
     await reader.cancel().catch(() => {})
   }

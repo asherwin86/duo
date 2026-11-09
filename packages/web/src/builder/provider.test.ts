@@ -1,6 +1,15 @@
 import { afterEach, expect, test } from 'bun:test'
 import { example } from './example'
-import { completion, contextWindow, endpointURL, isLoopback, isOllama, PROVIDERS, suggestModel } from './provider'
+import {
+  completion,
+  contextWindow,
+  endpointURL,
+  isLoopback,
+  isOllama,
+  LOCAL_MEMORY,
+  PROVIDERS,
+  suggestModel
+} from './provider'
 import { parseResponse, parseSource } from './types'
 
 const original = globalThis.fetch
@@ -159,22 +168,72 @@ test('Ollama is asked through /api/chat with a window big enough for the prompt,
   expect(seen?.url).toBe('http://localhost:11434/api/chat')
   expect(seen?.body.think).toBe(false)
   const options = seen?.body.options as { num_ctx: number; num_predict: number }
-  expect(options.num_predict).toBe(12000)
+  // A reply from this computer has no cap: it ends when the model says it is done.
+  expect(options.num_predict).toBe(-1)
   // 40,000 characters is about 13,400 tokens, and the reply needs 12,000 more.
   expect(options.num_ctx).toBe(32768)
   expect(seen?.body).not.toHaveProperty('max_tokens')
 })
-test('an Ollama reply cut off by its token limit is refused, an error line is reported', async () => {
+test('a local reply that is cut off is carried on from where it stopped, until the model says it is done', async () => {
   const ollama = { endpoint: 'http://localhost:11434/v1', model: 'm', key: '' }
+  const sent: { role: string; content: string }[][] = []
+  const rounds = [
+    '{"message":{"content":"ab"},"done":true,"done_reason":"length"}\n',
+    '{"message":{"content":"cd"},"done":true,"done_reason":"length"}\n',
+    '{"message":{"content":"ef"},"done":true,"done_reason":"stop"}\n'
+  ]
+  globalThis.fetch = (async (_url, options) => {
+    sent.push(JSON.parse(String(options?.body)).messages)
+    return response([rounds[sent.length - 1]!], 'application/x-ndjson')
+  }) as typeof fetch
+  const seen: number[] = []
+  expect(await completion(ollama, messages, new AbortController().signal, (n) => seen.push(n))).toBe('abcdef')
+  expect(sent).toHaveLength(3)
+  // Each round is the same conversation with the answer so far as the model's own half-finished turn.
+  expect(sent[0]).toEqual(messages)
+  expect(sent[1]?.at(-1)).toEqual({ role: 'assistant', content: 'ab' })
+  expect(sent[2]?.at(-1)).toEqual({ role: 'assistant', content: 'abcd' })
+  // Progress counts the whole answer, not each round.
+  expect(seen.at(-1)).toBe(6)
+})
+test('a hosted reply cut off at its cap is still refused, and a local round that adds nothing is not repeated', async () => {
   globalThis.fetch = (async () =>
-    response(
-      ['{"message":{"content":"part"},"done":true,"done_reason":"length"}\n'],
-      'application/x-ndjson'
-    )) as typeof fetch
-  await expect(completion(ollama, messages, new AbortController().signal)).rejects.toThrow('truncated')
-  globalThis.fetch = (async () =>
-    response(['{"error":"model requires more memory"}\n'], 'application/x-ndjson')) as typeof fetch
+    response(['data: {"choices":[{"delta":{"content":"part"},"finish_reason":"length"}]}\n\n'])) as typeof fetch
+  await expect(completion(connection, messages, new AbortController().signal)).rejects.toThrow('truncated')
+  const ollama = { endpoint: 'http://localhost:11434/v1', model: 'm', key: '' }
+  let calls = 0
+  globalThis.fetch = (async () => {
+    calls++
+    return response(['{"message":{"content":""},"done":true,"done_reason":"length"}\n'], 'application/x-ndjson')
+  }) as typeof fetch
+  await expect(completion(ollama, messages, new AbortController().signal)).rejects.toThrow('without finishing')
+  expect(calls).toBe(1)
+})
+test('a local prompt too big for the model memory is refused before it is sent, and an error line is reported', async () => {
+  const ollama = { endpoint: 'http://localhost:11434/v1', model: 'm', key: '' }
+  let calls = 0
+  globalThis.fetch = (async () => {
+    calls++
+    return response(['{"error":"model requires more memory"}\n'], 'application/x-ndjson')
+  }) as typeof fetch
+  await expect(
+    completion(ollama, [{ role: 'user', content: 'x'.repeat(LOCAL_MEMORY + 1) }], new AbortController().signal)
+  ).rejects.toThrow('more than the model can keep')
+  expect(calls).toBe(0)
   await expect(completion(ollama, messages, new AbortController().signal)).rejects.toThrow('generation error')
+})
+test('a local request has no timeout, a hosted one does', async () => {
+  const signals: (AbortSignal | undefined)[] = []
+  globalThis.fetch = (async (_url, options) => {
+    signals.push(options?.signal ?? undefined)
+    return response(['data: {"choices":[{"delta":{"content":"x"},"finish_reason":"stop"}]}\n\n'])
+  }) as typeof fetch
+  const stop = new AbortController()
+  await completion({ endpoint: 'http://localhost:8080/v1', model: 'm', key: '' }, messages, stop.signal)
+  await completion(connection, messages, stop.signal)
+  // The local request listens to the person's Stop and nothing else; the hosted one also has a clock.
+  expect(signals[0]).toBe(stop.signal)
+  expect(signals[1]).not.toBe(stop.signal)
 })
 test('the context window is the smallest power of two that holds prompt and reply', () => {
   const text = (n: number) => [{ role: 'user' as const, content: 'x'.repeat(n) }]

@@ -1,0 +1,59 @@
+export const meta = {
+  title: 'Safari plays YouTube, and the phone boots faster',
+  lead: 'Watch links open in the real player, the dev server serves the whole site, the bar gets out of the way, and a first boot dropped from about six seconds to about two and a half.',
+  date: '2026-11-08',
+  author: 'asherwin86',
+  poster: '/blog/safari-youtube-and-a-faster-boot.jpg'
+}
+
+Safari in Duo opened web pages and stopped at the one site people actually open. This is the work that fixed that, and the boot time that came along with it.
+
+## YouTube links play
+
+A watch link, a `youtu.be` link, a short and a live stream now load in YouTube's embed player, which is the part of YouTube that accepts being framed. The address bar keeps the address you typed, so Safari still looks like Safari.
+
+The first version showed `Error 153`. The player refuses a page that does not say where it comes from, so the embed now carries an `origin` and the frame sends a referrer:
+
+```ts
+// The player checks the embedding page's origin; without it, error 153.
+if (/^https?:/.test(location.origin)) q.set('origin', location.origin)
+```
+
+React sets a frame's `src` before its `referrerPolicy`, so the first request left without one. The frame is keyed by the policy, which makes it a new element, with the policy already on it.
+
+## The whole site, not just the video
+
+The home page, search and channels are a different matter: YouTube sends headers that forbid framing them. In the dev server, a small reverse proxy on `localhost:3002` serves the rest of `youtube.com` without those headers, so the Safari app can show the real home page and search results.
+
+This runs only with `bun run dev`. A built site has no server to do it and keeps the embed player for watch links. The proxy listens on loopback and nowhere else.
+
+## The bar gets out of the way
+
+The bottom bar slides away after three seconds of rest and comes back from a strip along the bottom edge. A page gets the screen, and the controls are one move away.
+
+## Eight K at a frame rate the card can hold
+
+A long 8K stream stuttered, a sheet of frames instead of motion. The phone is a three-dimensional scene that redraws on every frame, and a fullscreen video was competing with it. The shell now stops drawing the scene while any element is fullscreen, so the decoder and the compositor have the machine to themselves.
+
+In one test on this machine, an 8K stream dropped about 0% of its frames after the change. That is one machine and one stream: how far a video can go still depends on your browser's decoder and your GPU.
+
+## A faster boot
+
+Each of these came from watching the first load:
+
+- Bundled apps install six at a time, not one after another.
+- The registry no longer re-reads the stored bundle of an app whose tile is already current.
+- The three-second hold on localhost, which existed to look at the boot screen, is now opt-in with `?slowboot`. The logo fade went from 700 ms to 400 ms.
+- The dev server asks for its own page as it starts, so the bundle is built before the first browser arrives and not while it waits.
+
+A first boot on the dev server went from about 6.1 seconds to about 2.6.
+
+## Try it
+
+Run the dev server and open the Safari app:
+
+```sh
+bun run dev
+```
+
+Type a YouTube address, or search from the home page. The change is in [the changelog](/changelog) and the code is under `packages/apps/safari/` and `scripts/youtube-proxy.ts`.
