@@ -31,12 +31,16 @@ A local reply runs until the model says it is done, because it costs time and no
 no token cap (`num_predict: -1`) and no timeout; the Stop button is the only other end. A reply the
 server cuts off at the edge of its memory (`done_reason: length`) is sent back as the start of the
 model's own turn and carried on, and a failed compile or schema check is repaired again and again,
-with the attempt number on screen, until the app builds. Three things still end it, because each
+with the attempt number on screen, until the app builds. Four things still end it, because each
 would otherwise loop or silently corrupt the answer: a round that was cut off yet said nothing, a
+repair that returns the same text as the reply it was asked to repair, a
 prompt of more than about 60,000 tokens (the server would drop the start of it, which holds the
 instructions), and a reply past half of that. A previous reply over 40,000 characters is not sent back
 for repair, only its rejection, so the model starts that revision again, smaller. The 180 KB source
 limit of the schema is unchanged, so a 5,000 line file is repaired until it is smaller than that.
+Every schema error names what was wrong (the app name must be at most 12 characters, and the one given
+is 14), because a model told only that the revision was invalid sends the same answer back. Qwen3 Coder
+30B did exactly that until the message was specific, then fixed its name on the next try.
 
 Ollama on port 11434 is called through its own `/api/chat`, not `/v1`, because only that route
 accepts `options.num_ctx`. A builder prompt is about 5,000 tokens against Ollama's default

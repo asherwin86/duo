@@ -1994,7 +1994,7 @@ drops the front of a builder prompt, instructions included. See
 paid hosted request: a token cap with a "response was truncated" error, a timeout, and one
 repair. None of them applies when the only cost is time. A loopback endpoint now has no cap and
 no timeout, continues a reply the server cut off, and repairs until the app builds; Stop ends it.
-The guards that remain (an empty cut-off round, a prompt or reply past the model's memory) are
+The guards that remain (an empty cut-off round, a repair that repeats its input, a prompt or reply past the model's memory) are
 the ones where going on would loop or have the server silently drop the instructions. Hosted
 providers keep the cap, the timeout and the single repair. See
 [builder](platform/builder.md#models-on-this-computer).

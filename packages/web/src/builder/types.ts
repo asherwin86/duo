@@ -14,17 +14,14 @@ export const SOURCE_LIMIT = 180_000
 export function parseSource(value: unknown): Source {
   if (!value || typeof value !== 'object') throw new Error('Expected an app object')
   const source = value as Source
-  if (
-    typeof source.name !== 'string' ||
-    !source.name.trim() ||
-    source.name.length > 12 ||
-    typeof source.summary !== 'string' ||
-    source.summary.length > 2000 ||
-    !source.files ||
-    typeof source.files !== 'object' ||
-    Array.isArray(source.files)
-  )
-    throw new Error('Invalid app name, summary or files')
+  // Each rule says what was wrong: a model asked to repair its answer can only fix what it is told.
+  if (typeof source.name !== 'string' || !source.name.trim()) throw new Error('The app needs a name')
+  if (source.name.length > 12)
+    throw new Error(`The app name must be at most 12 characters, and "${source.name}" is ${source.name.length}`)
+  if (typeof source.summary !== 'string' || source.summary.length > 2000)
+    throw new Error('The summary must be text of at most 2000 characters')
+  if (!source.files || typeof source.files !== 'object' || Array.isArray(source.files))
+    throw new Error('files must be an object that maps file names to source text')
   const entries = Object.entries(source.files)
   if (!entries.length || entries.length > 12 || typeof source.files['app.tsx'] !== 'string')
     throw new Error('Include app.tsx and no more than 12 files')

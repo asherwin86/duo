@@ -306,7 +306,7 @@ export function Workspace({
           // A reply too long to send back would push the instructions out of a local model's memory, so
           // only its rejection goes back and the model starts that revision again, smaller.
           const keep = output.length <= (unlimited ? 40_000 : Number.POSITIVE_INFINITY)
-          output = await completion(
+          const repaired = await completion(
             connection,
             [
               ...context,
@@ -321,6 +321,12 @@ export function Workspace({
               ? (n) => setStage(`Repairing · attempt ${attempt + 1} · ${n.toLocaleString()} characters`)
               : undefined
           )
+          // Repairing again would only produce the same failure, forever: the model has to be asked differently.
+          if (repaired.trim() === output.trim())
+            throw new Error(
+              'The model sent back the same answer after being told what was wrong. Rephrase your request, or choose another model.'
+            )
+          output = repaired
         }
       }
     } catch (e) {

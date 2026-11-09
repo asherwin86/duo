@@ -241,7 +241,6 @@ async function request(
   } catch {
     if (combined.aborted)
       throw new Error(signal.aborted ? 'Stopped' : `Provider timed out after ${Math.round(limit / 60_000)} minutes`)
-    // A server that dropped the stream partway is not the same as one that never answered.
     throw new Error(
       local
         ? 'Cannot reach the server on this computer. Check that it is running and published on that port, and that it allows this site (for Ollama, OLLAMA_ORIGINS).'

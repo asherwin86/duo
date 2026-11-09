@@ -272,3 +272,11 @@ test('a new visitor starts on a hosted provider, never on a local one', () => {
   expect(PROVIDERS[0]?.local).toBeUndefined()
   expect(PROVIDERS.filter((p) => p.local).map((p) => p.id)).toEqual(['ollama', 'open-webui'])
 })
+test('a rejected revision says what was wrong, so a model asked to repair it can fix it', () => {
+  const name = (value: unknown) => () => parseSource({ ...example, name: value })
+  expect(name('tip-calculator')).toThrow('"tip-calculator" is 14')
+  expect(name('tip-calculator')).toThrow('at most 12 characters')
+  expect(name('  ')).toThrow('needs a name')
+  expect(() => parseSource({ ...example, summary: 'x'.repeat(2001) })).toThrow('summary')
+  expect(() => parseSource({ ...example, files: [] })).toThrow('maps file names')
+})
