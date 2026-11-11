@@ -1,2 +1,7 @@
 [serve.static]
 plugins = ["./stylex-plugin.ts"]
+
+[test]
+# Tests that write files (scripts/storage-folder.test.ts) must never touch the real storage folder, whichever test
+# file loads the storage module first: every run gets a folder of its own.
+preload = ["./scripts/test-env.ts"]

@@ -1998,3 +1998,16 @@ The guards that remain (an empty cut-off round, a repair that repeats its input,
 the ones where going on would loop or have the server silently drop the instructions. Hosted
 providers keep the cap, the timeout and the single repair. See
 [builder](platform/builder.md#models-on-this-computer).
+
+## 115. The dev server's file and emulator routes check who is connected, not what they say
+
+2026-11-11, accepted. The storage folder (`/__storage/`) and the Android emulator (`/__android/`, its screen
+WebSocket) wrote files and started programs for anything that sent `Host: localhost`, which a client on the network
+can write, and for a cross-site `text/plain` POST, which needs no preflight. Both are refused now by one check
+(`scripts/local-only.ts`): the address of the connection must be this machine's (`server.requestIP`), the Host
+must name it, and an Origin, when present, must be the page's own (`Origin: null` is refused, not an error). The
+fetch route also requires a JSON body. Windows device names (`NUL`, `con.apk`) are not file names, since Bun creates
+them and Explorer cannot open or delete them. A screen recording that ends within three seconds is restarted after
+two, not at once (an unavailable device made it a loop of dozens of processes a second), and stopping the emulator
+waits for it to exit before the next start. A malformed percent escape in a path is a 400, not a 500. Tests run
+against a throwaway storage folder (`scripts/test-env.ts`), never `storage/`.

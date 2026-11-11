@@ -16,14 +16,21 @@ Bun.serve({
   development: { hmr: true, console: true },
   websocket: screen,
   async fetch(req, server) {
+    // The address of the other end of the connection: a Host header is written by the sender, this is not.
+    const peer = server.requestIP(req)?.address
     // The emulator's screen is a WebSocket; only this machine's own page may open one.
     if (wantsScreen(req))
-      return allowed(req) && server.upgrade(req) ? undefined : new Response('Not allowed', { status: 403 })
-    const stored = await storage(req)
+      return allowed(req, peer) && server.upgrade(req) ? undefined : new Response('Not allowed', { status: 403 })
+    const stored = await storage(req, peer)
     if (stored) return stored
-    const emulated = await android(req)
+    const emulated = await android(req, peer)
     if (emulated) return emulated
-    const path = decodeURIComponent(new URL(req.url).pathname)
+    let path: string
+    try {
+      path = decodeURIComponent(new URL(req.url).pathname)
+    } catch {
+      return new Response('Not a valid address', { status: 400 })
+    }
     const file = Bun.file(
       `${path.startsWith('/cdn/') || path.startsWith('/preinstalled/') ? './dist' : './public'}${path}`
     )

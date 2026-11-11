@@ -60,6 +60,11 @@ The dev server also keeps a **storage folder** on your computer, `storage/Downlo
 and it shows up on the phone, and Safari saves downloads into it with no save window. Settings > General > Duo
 Storage has the switch for that. A built site has no server, so there Downloads stay in the browser.
 
+The storage folder and the Android emulator answer only the page on this computer: the connection must come from
+this machine (a request over the network is refused even when it writes `Host: localhost`), the Host must name this
+machine, and any Origin must be the page's own. File names Windows keeps for devices, such as `NUL` or `con.apk`, are
+not accepted.
+
 ### Android
 
 The **Android** app (in Utilities) shows a real Android 14 phone: Google's Android Emulator runs on your computer

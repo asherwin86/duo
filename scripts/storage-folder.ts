@@ -12,6 +12,7 @@
 
 import { existsSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { fromThisMachine } from './local-only.ts'
 
 const ROOT = resolve(process.env.DUO_STORAGE ?? './storage')
 const DOWNLOADS = join(ROOT, 'Downloads')
@@ -21,6 +22,8 @@ const DOWNLOADS = join(ROOT, 'Downloads')
  */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are exactly what a name must not hold
 const NAME = /^[^./\\:*?"<>|\x00-\x1f][^/\\:*?"<>|\x00-\x1f]*[^./\\:*?"<>|\x00-\x1f ]$|^[^./\\:*?"<>|\x00-\x1f]$/
+/** Names Windows keeps for devices, with or without an extension: a file called `NUL` or `con.apk` cannot be opened or deleted from Explorer. */
+const DEVICE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i
 const MAX_NAME = 128
 const MAX_BYTES = 512 * 1024 * 1024
 
@@ -36,8 +39,8 @@ if (!existsSync(readme))
       '',
       "Downloads/  The phone's Files > On My iPhone > Downloads. Put an APK, IPA or any file here and it shows up",
       '            on the phone; what Safari downloads is saved here. Names may use letters, digits, spaces and',
-      '            . _ - ( ) + @ [ ] and more; a name that starts with a dot, ends in a dot or a space, or holds',
-      '            / \\ : * ? " < > | is not shown.',
+      '            . _ - ( ) + @ [ ] and more; a name that starts with a dot, ends in a dot or a space, holds',
+      '            / \\ : * ? " < > |, or is a Windows device name such as CON, NUL or COM1 is not shown.',
       '',
       'Settings > General > Duo Storage on the phone turns "Save Downloads Automatically" on or off.',
       ''
@@ -48,8 +51,11 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 const fail = (status: number, error: string) => json({ error }, status)
 
-const validName = (value: unknown): value is string =>
-  typeof value === 'string' && new TextEncoder().encode(value).length <= MAX_NAME && NAME.test(value)
+export const validName = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  new TextEncoder().encode(value).length <= MAX_NAME &&
+  NAME.test(value) &&
+  !DEVICE.test(value)
 
 const row = (name: string) => {
   const path = join(DOWNLOADS, name)
@@ -92,13 +98,14 @@ async function write(name: string, body: ReadableStream<Uint8Array> | null, expe
   return row(name)
 }
 
-const local = (host: string) => /^(localhost|127\.0\.0\.1|\[::1\]|[\w-]+\.localhost)(:\d+)?$/.test(host)
-
-/** The storage API, or `undefined` for a request that is not for it. */
-export async function storage(req: Request): Promise<Response | undefined> {
+/**
+ * The storage API, or `undefined` for a request that is not for it. `peer` is the address of the other end of the
+ * connection: only this machine's own page may use it (see local-only.ts).
+ */
+export async function storage(req: Request, peer?: string | null): Promise<Response | undefined> {
   const url = new URL(req.url)
   if (!url.pathname.startsWith('/__storage/')) return undefined
-  if (!local(req.headers.get('host') ?? '')) return fail(403, 'The storage folder is only served on this machine')
+  if (!fromThisMachine(req, peer)) return fail(403, 'The storage folder is only served to this machine')
   const route = url.pathname.slice('/__storage/'.length)
 
   if (route === 'info' && req.method === 'GET') return json({ path: DOWNLOADS })
@@ -111,6 +118,8 @@ export async function storage(req: Request): Promise<Response | undefined> {
   }
 
   if (route === 'fetch' && req.method === 'POST') {
+    // JSON is a content type a page on another site cannot send without asking first, so this is the page's own.
+    if (!/^application\/json\b/i.test(req.headers.get('content-type') ?? '')) return fail(415, 'JSON is needed')
     const body = (await req.json().catch(() => null)) as { url?: unknown; name?: unknown } | null
     if (!body || !validName(body.name) || typeof body.url !== 'string')
       return fail(400, 'A name and an address are needed')
@@ -135,7 +144,12 @@ export async function storage(req: Request): Promise<Response | undefined> {
     }
   }
 
-  const file = route.startsWith('downloads/') ? decodeURIComponent(route.slice('downloads/'.length)) : null
+  let file: string | null = null
+  try {
+    if (route.startsWith('downloads/')) file = decodeURIComponent(route.slice('downloads/'.length))
+  } catch {
+    /* A malformed escape is not a name; it is refused below like any other. */
+  }
   if (file === null || !validName(file)) return fail(400, 'That is not a file name this phone can hold')
   const path = join(DOWNLOADS, file)
 

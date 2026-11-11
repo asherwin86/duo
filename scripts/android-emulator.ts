@@ -12,7 +12,8 @@ import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { ServerWebSocket } from 'bun'
-import { storageFolder } from './storage-folder.ts'
+import { fromThisMachine } from './local-only.ts'
+import { storageFolder, validName } from './storage-folder.ts'
 
 const win = process.platform === 'win32'
 const SDK = [
@@ -234,8 +235,12 @@ async function start() {
 
 async function stop() {
   stopRecord()
+  const proc = emulator
   if (tool.adb && state !== 'off') await adb('emu', 'kill').catch(() => {})
-  emulator?.kill()
+  // `emu kill` is the clean shutdown. Killing the launcher at once can leave the real emulator running, holding the
+  // port and the virtual phone's lock, so a Start right after a Stop fails. Wait for it to end, then make sure.
+  if (proc) await Promise.race([proc.exited, Bun.sleep(15_000)])
+  proc?.kill()
   state = 'off'
   emulator = undefined
 }
@@ -244,7 +249,9 @@ async function stop() {
 async function launch(name: string) {
   if (state !== 'running') throw new Error('Android is not running')
   const file = join(storageFolder, name)
-  if (!/^[^/\\]+\.(apk)$/i.test(name) || !existsSync(file)) throw new Error('That APK is not in the storage folder')
+  // The same names the storage folder lists, so nothing can be reached that it would not show.
+  if (!validName(name) || !/\.apk$/i.test(name) || !existsSync(file))
+    throw new Error('That APK is not in the storage folder')
   const parse = aapt2()
   const pkg = parse ? (await run([parse, 'dump', 'packagename', file])).out : ''
   const install = await adb('install', '-r', '-t', '-g', file)
@@ -265,9 +272,17 @@ function stopRecord() {
   record?.kill()
   record = undefined
 }
+/**
+ * How long to wait before starting the next screen recording. One that ran its full length is followed at once; one
+ * that ended almost as soon as it began (the device not there yet, an encoder error) would otherwise be restarted
+ * in a loop of a few dozen processes a second.
+ */
+export const restartDelay = (livedMs: number) => (livedMs < 3000 ? 2000 : 0)
+
 function startRecord() {
   stopRecord()
   if (state !== 'running' || !clients.size) return
+  const began = Date.now()
   const proc = Bun.spawn(
     [
       tool.adb!,
@@ -291,7 +306,12 @@ function startRecord() {
     for await (const chunk of proc.stdout as ReadableStream<Uint8Array>) for (const ws of clients) ws.sendBinary(chunk)
     if (record === proc) {
       record = undefined
-      startRecord()
+      const wait = restartDelay(Date.now() - began)
+      if (!wait) startRecord()
+      else
+        setTimeout(() => {
+          if (!record) startRecord()
+        }, wait)
     }
   })()
 }
@@ -349,7 +369,6 @@ function input(message: Input) {
   }
 }
 
-const local = (host: string) => /^(localhost|127\.0\.0\.1|\[::1\]|[\w-]+\.localhost)(:\d+)?$/.test(host)
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
@@ -357,13 +376,11 @@ const json = (body: unknown, status = 200) =>
 export const wantsScreen = (req: Request) =>
   new URL(req.url).pathname === '/__android/screen' && req.headers.get('upgrade') === 'websocket'
 
-/** Same machine, and (for anything that acts) the same site: a WebSocket skips CORS, so the Origin is checked. */
-export function allowed(req: Request) {
-  const host = req.headers.get('host') ?? ''
-  if (!local(host)) return false
-  const origin = req.headers.get('origin')
-  return !origin || new URL(origin).host === host
-}
+/**
+ * This machine's own page only (see local-only.ts): the connection comes from here, the Host is local and any Origin
+ * is the page's own, because a WebSocket skips CORS and this starts programs. `peer` is the other end's address.
+ */
+export const allowed = (req: Request, peer: string | null | undefined) => fromThisMachine(req, peer)
 
 export const screen = {
   open(ws: ServerWebSocket<unknown>) {
@@ -387,10 +404,10 @@ export const screen = {
 }
 
 /** The /__android/ JSON API, or `undefined` for a request that is not for it. */
-export async function android(req: Request): Promise<Response | undefined> {
+export async function android(req: Request, peer?: string | null): Promise<Response | undefined> {
   const url = new URL(req.url)
   if (!url.pathname.startsWith('/__android/') || url.pathname === '/__android/screen') return undefined
-  if (!allowed(req)) return json({ error: 'The emulator is only served to this machine' }, 403)
+  if (!allowed(req, peer)) return json({ error: 'The emulator is only served to this machine' }, 403)
   const route = url.pathname.slice('/__android/'.length)
   if (route === 'status' && req.method === 'GET')
     return json({
