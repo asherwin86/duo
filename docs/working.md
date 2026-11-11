@@ -169,6 +169,10 @@ keys `min(<full>, (100cqh - <fixed>) / <rows>)`; change `<fixed>` with any heigh
 ## Safari maintenance
 
 `packages/apps/safari/index.tsx` owns tab history, the floating URL pill and the cover rail;
+`session.ts` holds the open tabs, the current tab and page zoom at module level, because folding
+mounts a second copy of Safari on the other display and tabs kept in component state came back
+as a fresh start page there. It ends when the last copy unmounts, so closing and reopening
+Safari still starts over. Per-screen state (tab grid, menus, the sliding bar) stays local;
 `bookmarks.tsx` owns the local Recently Saved, folders and bookmark sections; shared Safari
 layout and material rules stay in `styles.ts`. Real web pages scroll in their own iframe
 viewport. The Duo website mounts `packages/web/src/safari-scroll-bridge.tsx`, which sends only

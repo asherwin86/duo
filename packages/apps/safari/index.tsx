@@ -18,6 +18,7 @@ import {
   sendToComputer
 } from './download.ts'
 import { ALLOW, frame as frameSrc, referrer } from './embed.ts'
+import { at, hold, sessions, start, type Tab, tab } from './session.ts'
 import { host, type MarkList, mark, retitle, safari, visit } from './store.ts'
 import { styles } from './styles.ts'
 
@@ -45,20 +46,20 @@ const ZOOM = [0.5, 0.75, 0.85, 1, 1.15, 1.25, 1.5, 1.75, 2, 2.5, 3]
 
 // Cross-origin frames hide their own history, so each tab keeps its own back
 // list; the store's history is the app's, across tabs and launches.
-type Tab = { id: number; hist: string[]; at: number; priv: boolean }
-let seq = 0
-// A tab with no history shows the start page: favourites and a focused address bar.
-const tab = (url?: string, priv = false): Tab => ({ id: seq++, hist: url ? [url] : [], at: 0, priv })
-const at = (x: Tab) => x.hist[x.at]
 const name = (x: Tab) => (at(x) ? host(at(x)!) : 'Start Page')
 
 export const Safari = ({ os }: { os: Os }) => {
   const home = typeof window !== 'undefined' && isDev(window.location.hostname) ? DEV_HOME : HOME
   const book = useSyncExternalStore(safari.subscribe, safari.get)
-  const [tabs, setTabs] = useState(() => [tab(os.arg ?? home)])
-  // The open tab by id, which a tab closing before it cannot shift; the first
-  // tab until one is picked.
-  const [cur, setCur] = useState(-1)
+  // The tabs belong to the app, not to this copy: folding puts a second copy on the other display, and it
+  // has to open on the same pages (session.ts). `cur` is the open tab by id, which a tab closing before it
+  // cannot shift; the first tab until one is picked.
+  useState(() => start(os.arg ?? home))
+  useEffect(hold, [])
+  const { tabs, cur, zooms } = useSyncExternalStore(sessions.subscribe, sessions.get)
+  const setTabs = (next: Tab[]) => sessions.set({ tabs: next })
+  const setCur = (id: number) => sessions.set({ cur: id })
+  const setZooms = (next: Record<string, number>) => sessions.set({ zooms: next })
   const [grid, setGrid] = useState(false)
   // The overview's segment: the private list or the normal one.
   const [priv, setPriv] = useState(false)
@@ -68,7 +69,6 @@ export const Safari = ({ os }: { os: Os }) => {
   const [moreOpen, setMoreOpen] = useState(false)
   const [pageMenu, setPageMenu] = useState(false)
   const [urlCompact, setUrlCompact] = useState(false)
-  const [zooms, setZooms] = useState<Record<string, number>>({})
   // The bar slides off after HIDE_MS of rest. `holding` is a pointer or focus on
   // it; `wake` re-arms the timer when the edge strip brings it back.
   const [barHidden, setBarHidden] = useState(false)
@@ -100,6 +100,11 @@ export const Safari = ({ os }: { os: Os }) => {
   const scrollTop = useRef(0)
   const travel = useRef(0)
   const fresh = (x: Tab) => setText(at(x) ? host(at(x)!) : '')
+  // The other display's copy can change the page too; this one's address bar follows, unless it is being typed in.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `url` and the tab are what changed; the text is only written
+  useEffect(() => {
+    if (document.activeElement !== field.current) setText(url ? host(url) : '')
+  }, [url, t.id])
   useEffect(() => {
     const currentUrl = url
     if (!currentUrl) return
